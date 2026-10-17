@@ -1,0 +1,38 @@
+# Python / Node
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+app/node_modules/
+.DS_Store
+
+# Local working data: models, inputs, generated output, collected clips, results.
+# None of it is part of the project.
+models/
+inputs/
+outputs/
+v2l_out/
+third_party/
+regression/videos/
+regression/expressions/
+regression/collected/
+regression/results/
+research/results/
+
+# Safety net for media and Live2D model files anywhere in the tree
+*.mp4
+*.mov
+*.m4v
+*.webm
+*.mkv
+*.moc3
+*.model3.json
+*.motion3.json
+*.exp3.json
+*.physics3.json
+*.cdi3.json
+*.pose3.json
+*.vtube.json
+*.npz

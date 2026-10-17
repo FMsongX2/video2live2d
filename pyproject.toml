@@ -1,0 +1,49 @@
+[project]
+name = "v2l"
+version = "0.1.0"
+description = "Recorded video of a person -> Live2D motion3.json for VBridger-compatible models"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+keywords = ["live2d", "vbridger", "vtuber", "mediapipe", "facial-animation", "motion-capture"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Topic :: Multimedia :: Graphics",
+  "Topic :: Multimedia :: Video",
+]
+dependencies = [
+  "mediapipe==1.1.1",
+  "opencv-python-headless==5.0.0.93",
+  "numpy==2.5.4",
+  "scipy==1.18.1",
+  "playwright==1.64.0",
+  "imageio-ffmpeg==0.6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+rare = ["torch>=2.7", "transformers>=4.50"]
+mcp = ["mcp>=2.3,<3"]
+
+[project.urls]
+Homepage = "https://github.com/FMsongX2/video2live2d"
+Issues = "https://github.com/FMsongX2/video2live2d/issues"
+
+[project.scripts]
+v2l = "v2l.cli:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+v2l = ["web/*.html", "web/*.json", "bridges/*.json", "presets/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

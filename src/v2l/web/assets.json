@@ -1,0 +1,10 @@
+{
+  "pixi.min.js": {
+    "url": "https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js",
+    "sha256": "403f2f2ee8145fa17f60c5c89403056efe2680e5096ec2762036486914ed19c5"
+  },
+  "cubism4.min.js": {
+    "url": "https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js",
+    "sha256": "af1267e6d52759b245766c578d905bfa025b532d5c3cc727c370957c4409e21b"
+  }
+}

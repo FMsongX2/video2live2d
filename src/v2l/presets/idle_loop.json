@@ -1,0 +1,6 @@
+{
+ "version": 1,
+ "meta": {"name": "Idle loop", "description": "A seamless idle animation: looping, whole breathing cycles and gentle smoothing."},
+ "output": {"loop": true, "loop_blend": 0.8},
+ "filtering": {"cutoff_scale": 0.8}
+}

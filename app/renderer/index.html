@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' http://127.0.0.1:*; script-src 'self' http://127.0.0.1:* 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: http://127.0.0.1:*; media-src http://127.0.0.1:* blob:; connect-src http://127.0.0.1:*">
+<title>V2L Studio</title>
+<script src="theme.js"></script>
+<link rel="stylesheet" href="style.css">
+<script src="../core.js"></script>
+<script src="../lib/pixi.min.js"></script>
+<script src="../lib/cubism4.min.js"></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">V2L <span>Studio</span></div>
+  <p data-i18n="app.tagline">Expressions from video, motion for your character.</p>
+  <button id="server" class="connection" data-i18n="server.checking" data-i18n-title="server.recheckTitle" title="Click to check the server connection again">Checking server…</button>
+  <button id="open-settings" class="icon gear" data-i18n-aria-label="prefs.openTitle" aria-label="Settings (⌘,)" data-i18n-title="prefs.openTitle" title="Settings (⌘,)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
+</header>
+<main>
+  <section class="viewer-pane" data-i18n-aria-label="viewer.label" aria-label="Live2D preview">
+    <header class="model-header">
+      <div class="model-title"><h1 id="model-name" data-i18n="model.preparing">Preparing model</h1><span id="model-info"></span></div>
+      <button id="open-model" data-i18n="model.change">Change model</button>
+    </header>
+    <div class="stage-shell">
+      <div id="stage"><div id="stage-hint" role="status" data-i18n="stage.loading">Loading model…</div></div>
+      <div class="stage-toolbar">
+        <div class="seg" id="frame" role="group" data-i18n-aria-label="frame.label" aria-label="Preview framing">
+          <button data-frame="face" aria-pressed="false" data-i18n="frame.face">Face</button><button data-frame="upper" aria-pressed="true" class="on" data-i18n="frame.upper">Upper body</button><button data-frame="full" aria-pressed="false" data-i18n="frame.full">Full body</button>
+        </div>
+        <button id="reset-view" data-i18n="frame.reset" data-i18n-title="frame.resetTitle" title="Reset framing (double-click the stage)">Reset view</button>
+      </div>
+      <span class="stage-guide" data-i18n="stage.guide">Drag to move · Scroll to zoom</span>
+      <details class="view-settings"><summary data-i18n="view.settings">Preview settings</summary><div>
+        <label class="chk"><input type="checkbox" id="physics" checked> <span data-i18n="view.physics">Physics</span></label>
+        <label class="chk"><input type="checkbox" id="tex4k" checked> <span data-i18n="view.tex4k">Save memory (4K)</span></label>
+        <p class="hint" data-i18n="view.tex4kHint">Only the preview is downscaled. The original model is not changed.</p>
+      </div></details>
+    </div>
+    <footer class="transport">
+      <div class="transport-heading"><label for="motion-select" data-i18n="transport.motionPreview">Motion preview</label><span id="sync-state" class="hint" data-i18n="transport.idle">Idle</span></div>
+      <div class="playback-row">
+        <button id="play" class="play" data-i18n="transport.play" data-i18n-aria-label="transport.playMotion" aria-label="Play motion" data-i18n-title="transport.playTitle" title="Play / Pause (Space)" disabled>Play</button>
+        <select id="motion-select" data-i18n-aria-label="transport.motionSelect" aria-label="Motion to play"><option value="" data-i18n="transport.idle">Idle</option></select>
+      </div>
+      <div class="timeline"><input type="range" id="scrub" data-i18n-aria-label="transport.position" aria-label="Playback position" min="0" max="1000" value="0" disabled><span id="time">0.00 / 0.00 s</span></div>
+      <div class="transport-options"><label class="chk"><input type="checkbox" id="loop" checked> <span data-i18n="transport.loop">Loop</span></label><label class="chk"><input type="checkbox" id="sync" checked> <span data-i18n="transport.sync">Sync with source video</span></label><span class="key-hint" data-i18n="transport.keyHint">Space: play</span></div>
+    </footer>
+  </section>
+  <aside class="bench-pane" data-i18n-aria-label="bench.label" aria-label="Create motion">
+    <header class="bench-header"><h2 data-i18n="bench.label">Create motion</h2><span id="workflow-label" data-i18n="workflow.source">Add a source</span></header>
+    <div class="bench-scroll">
+      <section class="source-section" aria-labelledby="source-heading">
+        <div class="section-heading"><h3 id="source-heading" data-i18n="source.heading">Source video</h3><span id="source-meta" class="hint" data-i18n="source.none">Not selected yet</span></div>
+        <div class="source-bar"><button id="open-video" data-i18n="source.openVideo">Choose video</button><button id="open-cam" data-i18n="source.openCam">Record with webcam</button></div>
+        <div id="drop" class="drop">
+          <video id="video" controls playsinline data-i18n-aria-label="source.videoLabel" aria-label="Source video"></video>
+          <div id="drop-hint"><svg viewBox="0 0 48 40" width="48" height="40" aria-hidden="true"><rect x="3" y="6" width="30" height="28" rx="7"/><path d="m33 15 12-6v22l-12-6M14 15l10 5-10 5z"/></svg><strong data-i18n="drop.title">Capture expressions and movement</strong><span data-i18n="drop.body">Drop a video of a face and upper body here.</span><small data-i18n="drop.formats">MP4, MOV, WebM · or record with your webcam</small></div>
+          <div id="cam-panel" class="cam hidden">
+            <video id="cam" autoplay muted playsinline data-i18n-aria-label="cam.preview" aria-label="Webcam preview"></video>
+            <span class="mirror-label" data-i18n="cam.mirror">Mirrored preview · recording is not flipped</span>
+            <div id="cam-cue" class="cue hidden" role="status"></div>
+          </div>
+        </div>
+        <div id="camera-controls" class="camera-controls hidden">
+          <div class="camera-devices"><select id="cam-device" data-i18n-aria-label="cam.device" aria-label="Camera"></select><label class="chk"><input type="checkbox" id="cam-mic"> <span data-i18n="cam.mic">Record audio</span></label></div>
+          <div class="record-controls"><button id="rec" class="primary" data-i18n="cam.start">Start recording</button><span id="rec-time"></span><button id="cam-close" data-i18n="cam.close">Close camera</button></div>
+          <p class="hint" data-i18n="cam.hint" data-i18n-args='{"max":60}'>After the countdown, hold a neutral face for a moment, then move freely. Recording stops at 60 s.</p>
+        </div>
+        <p id="source-name" class="source-name hidden"></p>
+      </section>
+      <form id="opts" novalidate>
+        <fieldset id="settings-fields">
+          <div class="section-heading"><h3 data-i18n="settings.heading">Motion settings</h3>
+            <details id="bench-menu" class="menu"><summary data-i18n-aria-label="bench.more" aria-label="More actions" data-i18n-title="bench.more" title="More actions"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></summary>
+              <div class="menu-items"><button type="button" id="save-defaults" data-i18n="bench.saveDefault">Save as default</button><button type="button" id="reset-bench" data-i18n="bench.resetToDefaults">Reset to defaults</button><button type="button" id="copy-cli" data-i18n="bench.copyCli">Copy as CLI command</button><button type="button" id="open-tuning" data-i18n="bench.openTuning">Open tuning settings</button></div>
+            </details>
+          </div>
+          <label class="field" for="name"><span data-i18n="settings.name">Motion name</span><input id="name" data-i18n-placeholder="settings.namePlaceholder" placeholder="Filled in when you choose a video" maxlength="80" pattern="[A-Za-z0-9_\-]+" aria-describedby="name-help"></label>
+          <p id="name-help" class="hint" data-i18n="settings.nameHelp">Letters, numbers, underscores and hyphens.</p>
+          <label class="field" for="preset"><span data-i18n="bench.preset">Tuning preset</span><select id="preset" aria-describedby="tuning-summary"></select></label>
+          <p id="tuning-summary" class="hint"></p>
+          <label class="field" for="style"><span data-i18n="settings.style">Style</span><select id="style"><option value="cute" data-i18n="settings.styleCute">Cute</option><option value="faithful" data-i18n="settings.styleFaithful">Faithful</option></select></label>
+          <p id="style-help" class="hint" data-i18n="settings.styleCuteHelp">Tunes expressions and motion for a cute look.</p>
+          <label class="chk option"><input type="checkbox" id="opt-loop"> <span data-i18n="settings.loop">Seamless loop</span></label>
+          <details id="advanced" class="advanced"><summary data-i18n="settings.advanced">Trim &amp; expression detection</summary><div class="advanced-body">
+            <div class="field"><span data-i18n="settings.range">Range (seconds)</span><div class="pair"><label for="start"><span data-i18n="settings.start">Start</span><input id="start" type="number" min="0" step="0.01" placeholder="0"></label><label for="end"><span data-i18n="settings.end">End</span><input id="end" type="number" min="0" step="0.01" data-i18n-placeholder="settings.endPlaceholder" placeholder="End of video"></label></div></div>
+            <label class="field" for="neutral"><span data-i18n="settings.neutral">Neutral face window (start:end)</span><input id="neutral" data-i18n-placeholder="settings.neutralPlaceholder" placeholder="Auto · e.g. 0.3:1.3" aria-describedby="neutral-help"></label>
+            <p id="neutral-help" class="hint" data-i18n="settings.neutralHelp">Measured from the start of the range. Leave empty to choose automatically.</p>
+            <label class="chk option"><input type="checkbox" id="rare" checked> <span data-i18n="settings.rare">Detect cheek puff &amp; tongue</span></label><p class="hint" data-i18n="settings.rareHelp">Experimental. Takes longer, and results depend on the parameters your model supports.</p>
+            <label class="chk option"><input type="checkbox" id="flip"> <span data-i18n="settings.flip">Correct a mirrored source video</span></label>
+          </div></details>
+          <p id="bench-note" class="hint" role="status"></p>
+        </fieldset>
+      </form>
+      <section id="progress" class="progress hidden" aria-labelledby="progress-heading">
+        <div class="section-heading"><h3 id="progress-heading" data-i18n="progress.heading">Progress</h3><span id="progress-mode" class="hint"></span></div>
+        <ol id="stages" class="stages"></ol>
+        <div id="frames" class="frames hidden"><progress id="frame-bar" max="1" value="0" data-i18n-aria-label="progress.frames" aria-label="Frames"></progress><span id="frame-text"></span></div>
+        <div id="run-error" class="run-error hidden" role="alert"><p id="run-error-text"></p><button type="button" id="run-error-action" class="hidden" data-i18n="run.openCompute">Open Compute settings</button></div>
+      </section>
+      <section id="result" class="result hidden" aria-labelledby="result-heading">
+        <div class="section-heading"><h3 id="result-heading" data-i18n="result.heading">Result</h3><span class="result-badge" data-i18n="result.done">Done</span></div>
+        <p id="result-name"></p><div id="result-summary"></div>
+        <div class="result-actions"><button id="compare" data-i18n="result.compare">Compare with source</button><button id="install" class="primary" data-i18n="result.install">Save to model folder</button><button id="reveal" data-i18n="result.reveal">Show in Finder</button></div>
+        <div class="result-actions secondary"><button id="use-settings" data-i18n="result.useSettings">Use these settings</button><button id="run-again" data-i18n="result.runAgain">Run again with current settings</button></div>
+        <p id="install-status" class="hint" role="status" data-i18n="result.installHint">Check the preview, then save it to the model folder.</p>
+      </section>
+      <details id="log-panel" class="log-panel"><summary><span data-i18n="log.summary">Log</span> <span id="log-count">0</span></summary><pre id="log" class="log" tabindex="0" data-i18n-aria-label="log.label" aria-label="Server log" data-i18n="log.empty">The log appears when a job starts.</pre></details>
+    </div>
+    <footer class="job-footer">
+      <div class="job-state"><span id="job-indicator" class="job-indicator"></span><span id="status" role="status" aria-live="polite" data-i18n="status.initial">Prepare a model and a source video.</span></div>
+      <div class="job-actions"><button id="run" class="primary" data-i18n="job.run" disabled>Generate motion</button><button id="cancel" class="hidden" data-i18n="job.cancel" disabled>Stop waiting</button></div>
+      <p id="job-help" class="hint" data-i18n="job.helpIdle">Video analysis runs on the remote server.</p>
+    </footer>
+  </aside>
+</main>
+<dialog id="settings" class="settings" aria-labelledby="settings-title"></dialog>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "v2l-studio",
+  "productName": "V2L Studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop panel: Live2D model viewer + v2l video-to-motion test bench",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.8.0"
+  }
+}

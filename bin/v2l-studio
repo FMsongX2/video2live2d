@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Desktop panel: Live2D viewer (left) + video -> motion test bench (right). See app/.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT/app"
+[ -d node_modules/electron ] || npm install --no-audit --no-fund
+exec npx electron .

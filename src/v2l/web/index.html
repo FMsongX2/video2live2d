@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#fff}canvas{display:block}</style>
+<script src="/core.js"></script>
+<script src="/lib/pixi.min.js"></script>
+<script src="/lib/cubism4.min.js"></script>
+</head>
+<body>
+<script>
+// Deterministic offline renderer driven by render.py. The page never advances on its own:
+// the driver calls step(dtMs) once per output frame and reads the canvas back.
+const { Live2DModel, MotionPriority } = PIXI.live2d;
+let app, model, pose = null;
+
+window.init = async ({ modelUrl, motionFile, width, height }) => {
+  app = new PIXI.Application({ width, height, backgroundColor: 0xffffff, preserveDrawingBuffer: true, autoStart: false, antialias: true });
+  document.body.appendChild(app.view);
+  const settings = await (await fetch(modelUrl)).json();
+  settings.url = new URL(modelUrl, location.href).href;
+  settings.FileReferences.Motions = motionFile ? { V2L: [{ File: motionFile }] } : {};
+  model = await Live2DModel.from(settings, { autoUpdate: false, autoInteract: false, idleMotionGroup: '__none__' });
+  const im = model.internalModel;
+  im.eyeBlink = undefined;                       // blinking comes from the motion only
+  if (im.breath) im.breath.setParameters([]);    // breathing comes from the motion only
+  model.anchor.set(0, 0);
+  app.stage.addChild(model);
+  // Static poses: applied after the (empty) motion stage, before physics; every frame starts
+  // from the defaults so a pose names only what it changes.
+  const orig = im.motionManager.update.bind(im.motionManager);
+  im.motionManager.update = (core, now) => {
+    const r = orig(core, now);
+    if (pose) {
+      const m = core._model.parameters;
+      for (let i = 0; i < m.count; i++) m.values[i] = m.defaultValues[i];
+      for (const [k, v] of Object.entries(pose)) core.setParameterValueById(k, v);
+    }
+    return r || !!pose;
+  };
+  return { width: im.width, height: im.height };
+};
+
+// Frame the model so that model-space point (cx, cy) (fractions of the model canvas) is at the
+// view centre and a model-space height h (fraction) fills the view height.
+window.frame = ({ cx, cy, h }) => {
+  const im = model.internalModel;
+  const s = app.view.height / (h * im.height);
+  model.scale.set(s);
+  model.position.set(app.view.width / 2 - cx * im.width * s, app.view.height / 2 - cy * im.height * s);
+};
+
+window.inspect = () => {
+  const p = model.internalModel.coreModel._model.parameters;
+  const out = [];
+  for (let i = 0; i < p.count; i++) out.push({ id: p.ids[i], min: p.minimumValues[i], max: p.maximumValues[i], def: p.defaultValues[i] });
+  return out;
+};
+
+window.setPhysics = (on) => {
+  const im = model.internalModel;
+  if (!on && im.physics) { im.__physics = im.physics; im.physics = undefined; }
+  if (on && im.__physics) { im.physics = im.__physics; }
+};
+
+window.poseImage = (params, steps) => {
+  pose = params;
+  for (let i = 0; i < steps; i++) model.update(1000 / 30);
+  app.renderer.render(app.stage);
+  return app.view.toDataURL('image/png');
+};
+
+window.play = async () => { pose = null; return model.motion('V2L', 0, MotionPriority.FORCE); };
+
+window.step = (dtMs) => {
+  model.update(dtMs);
+  app.renderer.render(app.stage);
+  return app.view.toDataURL('image/jpeg', 0.9);
+};
+
+window.ready = true;
+</script>
+</body>
+</html>

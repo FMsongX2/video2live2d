@@ -1,0 +1,7 @@
+{
+ "version": 1,
+ "meta": {"name": "Calm", "description": "Smaller, smoother head and body motion for talking, reading or ASMR-style clips."},
+ "intensity": {"head": 0.8, "body": 0.7, "gaze": 0.9},
+ "style": {"head_gain": 1.0},
+ "filtering": {"cutoff_scale": 0.7}
+}

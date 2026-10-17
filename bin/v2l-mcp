@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# MCP server for AI agents on stdio (see src/v2l/mcp_server.py). Remote mode (V2L_HOST set) needs
+# only python3 + rsync + ssh here, plus the `mcp` package, which uv supplies when it is missing.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+if python3 -c 'import mcp.server.mcpserver' 2>/dev/null; then
+  exec python3 -m v2l.mcp_server "$@"
+elif command -v uv >/dev/null; then
+  exec uv run --quiet --no-project --python '>=3.11' --with 'mcp>=2.3,<3' python -m v2l.mcp_server "$@"
+fi
+echo "v2l-mcp: needs the MCP SDK: python3 -m pip install 'mcp>=2.3,<3' (or install uv)" >&2
+exit 2

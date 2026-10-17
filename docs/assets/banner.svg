@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="t d">
+  <title id="t">video2live2d</title>
+  <desc id="d">A recorded video frame, its tracked face landmarks, and the Live2D parameter curves derived from them.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#121826"/>
+      <stop offset="1" stop-color="#1b2338"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="360" rx="24" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="1279" height="359" rx="24" fill="none" stroke="#2c3650"/>
+
+  <!-- Title -->
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="64" y="92" font-size="44" font-weight="700" fill="#f1f5f9">video2live2d</text>
+    <rect x="64" y="108" width="72" height="4" rx="2" fill="url(#accent)"/>
+    <text x="64" y="146" font-size="18" fill="#94a3b8">Recorded video of a person</text>
+    <text x="64" y="172" font-size="18" fill="#94a3b8">to a Cubism motion3.json,</text>
+    <text x="64" y="198" font-size="18" fill="#94a3b8">offline, for VBridger-style rigs.</text>
+    <text x="64" y="300" font-size="12" fill="#64748b" letter-spacing="1.2">TRACK · CALIBRATE · BRIDGE · EXPORT</text>
+  </g>
+
+  <!-- Panel 1: video frame -->
+  <g transform="translate(420 60)">
+    <rect x="0" y="0" width="220" height="240" rx="14" fill="#0e1422" stroke="#334155"/>
+    <rect x="0" y="0" width="220" height="26" rx="14" fill="#1e293b"/>
+    <rect x="0" y="14" width="220" height="12" fill="#1e293b"/>
+    <circle cx="18" cy="13" r="4" fill="#f87171"/>
+    <circle cx="32" cy="13" r="4" fill="#fbbf24"/>
+    <circle cx="46" cy="13" r="4" fill="#34d399"/>
+    <clipPath id="frame"><rect x="0" y="26" width="220" height="214" rx="14"/></clipPath>
+    <!-- person silhouette -->
+    <g clip-path="url(#frame)">
+    <path d="M30 240 C40 196 70 182 110 182 C150 182 180 196 190 240 Z" fill="#273349"/>
+    <rect x="98" y="150" width="24" height="36" fill="#273349"/>
+    <ellipse cx="110" cy="112" rx="44" ry="54" fill="#334155"/>
+    </g>
+    <!-- play bar -->
+    <rect x="16" y="226" width="188" height="3" rx="1.5" fill="#334155"/>
+    <rect x="16" y="226" width="78" height="3" rx="1.5" fill="#5eead4"/>
+  </g>
+
+  <path d="M652 180 H694" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Panel 2: landmarks -->
+  <g transform="translate(706 60)">
+    <rect x="0" y="0" width="220" height="240" rx="14" fill="#0e1422" stroke="#334155"/>
+    <g fill="none" stroke="#5eead4" stroke-opacity="0.35" stroke-width="1">
+      <ellipse cx="110" cy="112" rx="44" ry="54"/>
+      <path d="M40 222 C60 196 84 188 110 188 C136 188 160 196 180 222"/>
+    </g>
+    <g fill="#5eead4">
+      <!-- jaw/contour -->
+      <circle cx="68" cy="100" r="2.2"/><circle cx="70" cy="122" r="2.2"/><circle cx="76" cy="142" r="2.2"/>
+      <circle cx="90" cy="158" r="2.2"/><circle cx="110" cy="166" r="2.2"/><circle cx="130" cy="158" r="2.2"/>
+      <circle cx="144" cy="142" r="2.2"/><circle cx="150" cy="122" r="2.2"/><circle cx="152" cy="100" r="2.2"/>
+      <circle cx="82" cy="70" r="2.2"/><circle cx="110" cy="60" r="2.2"/><circle cx="138" cy="70" r="2.2"/>
+      <!-- brows -->
+      <circle cx="84" cy="88" r="2"/><circle cx="94" cy="85" r="2"/><circle cx="104" cy="87" r="2"/>
+      <circle cx="116" cy="87" r="2"/><circle cx="126" cy="85" r="2"/><circle cx="136" cy="88" r="2"/>
+      <!-- nose -->
+      <circle cx="110" cy="108" r="2"/><circle cx="110" cy="120" r="2"/><circle cx="102" cy="126" r="2"/><circle cx="118" cy="126" r="2"/>
+    </g>
+    <!-- eyes -->
+    <g fill="none" stroke="#5eead4" stroke-width="1.6">
+      <path d="M84 100 Q94 93 104 100 Q94 105 84 100 Z"/>
+      <path d="M116 100 Q126 93 136 100 Q126 105 116 100 Z"/>
+      <path d="M96 140 Q110 134 124 140 Q110 150 96 140 Z"/>
+    </g>
+    <circle cx="95" cy="100" r="2.6" fill="#a78bfa"/>
+    <circle cx="127" cy="100" r="2.6" fill="#a78bfa"/>
+    <!-- shoulders (pose) -->
+    <g fill="#a78bfa"><circle cx="58" cy="206" r="3.2"/><circle cx="162" cy="206" r="3.2"/></g>
+    <path d="M58 206 L162 206" stroke="#a78bfa" stroke-width="1.4" stroke-dasharray="4 4"/>
+  </g>
+
+  <path d="M938 180 H980" stroke="#64748b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Panel 3: parameter curves -->
+  <g transform="translate(992 60)" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10">
+    <rect x="0" y="0" width="224" height="240" rx="14" fill="#0e1422" stroke="#334155"/>
+    <g stroke="#1e293b">
+      <path d="M14 70 H210"/><path d="M14 126 H210"/><path d="M14 182 H210"/>
+    </g>
+    <text x="14" y="26" fill="#94a3b8">ParamAngleX</text>
+    <path d="M14 56 C40 40 58 40 78 52 S118 78 140 62 S186 34 210 48" fill="none" stroke="#f472b6" stroke-width="2"/>
+    <text x="14" y="88" fill="#94a3b8">ParamEyeLOpen</text>
+    <path d="M14 98 H70 L78 120 L86 98 H150 L157 118 L164 98 H210" fill="none" stroke="#5eead4" stroke-width="2" stroke-linejoin="round"/>
+    <text x="14" y="144" fill="#94a3b8">ParamMouthOpenY</text>
+    <path d="M14 172 C30 172 36 152 50 156 S70 174 84 168 S104 146 120 152 S146 174 162 162 S196 166 210 170" fill="none" stroke="#a78bfa" stroke-width="2"/>
+    <text x="14" y="200" fill="#94a3b8">ParamBodyAngleZ</text>
+    <path d="M14 222 C60 214 90 214 120 220 S180 228 210 216" fill="none" stroke="#fbbf24" stroke-width="2"/>
+  </g>
+</svg>

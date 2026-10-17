@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Laptop entry point: runs v2l on the server (see src/v2l/remote.py). Needs only python3 + rsync + ssh.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m v2l.remote "$@"

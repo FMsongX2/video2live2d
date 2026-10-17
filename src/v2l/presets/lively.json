@@ -1,0 +1,7 @@
+{
+ "version": 1,
+ "meta": {"name": "Lively", "description": "Bigger head, body and facial movement for energetic clips."},
+ "intensity": {"head": 1.25, "body": 1.3, "brows": 1.2, "smile": 1.2, "mouth_shape": 1.15},
+ "style": {"head_gain": 1.3},
+ "filtering": {"cutoff_scale": 1.2}
+}

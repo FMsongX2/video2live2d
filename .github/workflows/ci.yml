@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[test,mcp]'
+      - name: Test
+        run: python -m pytest -q
+
+  studio:
+    name: Studio syntax
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check JavaScript
+        run: |
+          node --check app/main.js
+          node --check app/preload.js
+          for f in app/renderer/*.js; do node --input-type=module --check < "$f"; done
+          python3 -c "import json; json.load(open('src/v2l/web/assets.json'))"

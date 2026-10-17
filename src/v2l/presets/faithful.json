@@ -1,0 +1,5 @@
+{
+ "version": 1,
+ "meta": {"name": "Faithful", "description": "Only what the camera sees: no added smile, blush, eye or head styling."},
+ "style": {"name": "faithful"}
+}
