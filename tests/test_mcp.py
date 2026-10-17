@@ -12,6 +12,11 @@ from v2l import mcp_server as M
 FAKE_CLI = '''
 import json, pathlib, sys, time
 a = sys.argv[1:]
+if a[:2] == ["mapping", "show"]:
+    m = a[a.index("--mapping") + 1] if "--mapping" in a else None
+    print(json.dumps({"ok": True, "model": "m", "base": "fallback", "entries": [], "parameters": [],
+                      "seen": json.loads(pathlib.Path(m).read_text()) if m else None}))
+    sys.exit(0)
 name, out = a[a.index("--name") + 1], pathlib.Path(a[a.index("--out") + 1])
 settings = json.loads(pathlib.Path(a[a.index("--config") + 1]).read_text())
 def ev(**e):
@@ -25,7 +30,9 @@ out.mkdir(parents=True, exist_ok=True)
 if name.startswith("fail"):
     print(json.dumps({"ok": False, "error": {"type": "unusable_input", "message": "no face found in any frame"}}))
     sys.exit(3)
-(out / f"{name}.motion3.json").write_text(json.dumps({"smile": settings["intensity"]["smile"]}))
+mapping = json.loads(pathlib.Path(a[a.index("--mapping") + 1]).read_text()) if "--mapping" in a else None
+(out / f"{name}.motion3.json").write_text(json.dumps({"smile": settings["intensity"]["smile"]}
+                                                     | ({"mapping": mapping} if mapping else {})))
 print(json.dumps({"ok": True, "name": name, "out_dir": str(out),
                   "files": {"motion": str(out / f"{name}.motion3.json"), "report": None, "preview": None},
                   "installed": None, "summary": {"face_rate": 1.0}}))
@@ -183,3 +190,100 @@ def test_generate_through_the_mcp_sdk(env):
     assert not r.is_error and r.structured_content["status"] == "succeeded"
     assert progress and progress == sorted(progress) and progress[-1] == 100.0
     assert bad.is_error and "name must be" in bad.content[0].text
+
+
+MOTION = {"Version": 3, "Meta": {"Duration": 2.0, "Fps": 30.0, "FadeInTime": 0.5, "FadeOutTime": 0.5, "Loop": False,
+                                 "AreBeziersRestricted": True, "CurveCount": 1, "TotalSegmentCount": 2,
+                                 "TotalPointCount": 3, "UserDataCount": 0, "TotalUserDataSize": 0},
+          "Curves": [{"Target": "Parameter", "Id": "ParamAngleX", "Segments": [0.0, 0.0, 0, 1.0, 10.0, 0, 2.0, 0.0]}]}
+
+
+def test_motion_tools_through_the_mcp_sdk(env):
+    pytest.importorskip("mcp")
+    from mcp import Client
+
+    out = env["tmp"] / "out"
+    out.mkdir()
+    src = out / "a.motion3.json"
+    src.write_text(json.dumps(MOTION))
+    model_in_out = out / "model"  # a model folder inside the output folder
+    model_in_out.mkdir()
+    (model_in_out / "m.model3.json").write_text("{}")
+    ops = [{"op": "set_interpolation", "curves": "*", "type": "bezier"},
+           {"op": "insert_key", "curve": "ParamAngleX", "t": 1.5}]
+
+    async def go():
+        async with Client(M.build_server(env["jobs"]())) as c:
+            info = await c.call_tool("v2l_motion_info", {"motion": str(src)})
+            read = await c.call_tool("v2l_motion_read", {"motion": str(src), "curves": ["ParamAngleX"]})
+            edit = await c.call_tool("v2l_motion_edit", {"motion": str(src), "operations": ops,
+                                                         "out": str(out / "b.motion3.json")})
+            again = await c.call_tool("v2l_motion_edit", {"motion": str(src), "operations": ops,
+                                                          "out": str(out / "b.motion3.json")})
+            bad = await c.call_tool("v2l_motion_edit", {"motion": str(src), "operations": [{"op": "move_key",
+                                    "curve": "ParamAngleX", "t": 1.0, "to_t": 2.5}], "out": str(out / "c.motion3.json")})
+            outside = await c.call_tool("v2l_motion_edit", {"motion": str(src), "operations": ops,
+                                                            "out": str(env["tmp"] / "x.motion3.json")})
+            into_model = await c.call_tool("v2l_motion_edit", {"motion": str(src), "operations": ops,
+                                                               "out": str(model_in_out / "x.motion3.json")})
+            return info, read, edit, again, bad, outside, into_model
+    info, read, edit, again, bad, outside, into_model = run(go())
+    assert info.structured_content["counts"]["keys"] == 3 and info.structured_content["problems"] == []
+    curve = read.structured_content["motion"]["curves"][0]
+    assert curve["keys"] == [[0.0, 0.0], [1.0, 10.0], [2.0, 0.0]] and curve["segments"][0] == {"type": "linear"}
+    assert not edit.is_error and edit.structured_content["counts"]["keys"] == 4
+    written = json.loads((out / "b.motion3.json").read_text())
+    assert written["Meta"]["TotalPointCount"] == 1 + 3 * 3
+    assert again.is_error and "overwrite" in again.content[0].text
+    assert bad.is_error and "operation 0 (move_key)" in bad.content[0].text and not (out / "c.motion3.json").exists()
+    assert outside.is_error and "output folder" in outside.content[0].text
+    assert into_model.is_error and "install toolset" in into_model.content[0].text
+
+
+def test_read_only_keeps_reading_tools_but_hides_editing(env):
+    pytest.importorskip("mcp")
+    from mcp import Client
+
+    async def names(policy):
+        async with Client(M.build_server(env["jobs"](), policy)) as c:
+            return {t.name for t in (await c.list_tools()).tools}
+    ro = run(names(M.Policy(read_only=True, toolsets=M.TOOLSETS)))
+    assert {"v2l_mapping_get", "v2l_motion_read", "v2l_motion_info"} <= ro and "v2l_motion_edit" not in ro
+    assert "v2l_motion_edit" in run(names(M.Policy()))
+
+
+def test_mapping_get_and_generate_with_mapping_through_the_mcp_sdk(env):
+    pytest.importorskip("mcp")
+    from mcp import Client
+
+    override = {"format": "v2l.mapping", "version": 1, "entries": [{"output": "ParamAngleZ", "invert": True}]}
+
+    async def go():
+        async with Client(M.build_server(env["jobs"]())) as c:
+            got = await c.call_tool("v2l_mapping_get", {"model": str(env["model"]), "mapping": override})
+            bad = await c.call_tool("v2l_mapping_get", {"model": str(env["model"]), "mapping": {
+                "entries": [{"output": "ParamAngleZ", "input": "NoSuchInput"}]}})
+            gen = await c.call_tool("v2l_generate", {"video": str(env["video"]), "model": str(env["model"]),
+                                                     "name": "mapped", "mapping": override})
+            return got, bad, gen
+    got, bad, gen = run(go())
+    res = got.structured_content
+    assert res["seen"] == override and any(i["name"] == "FaceAngleX" for i in res["inputs"])
+    assert bad.is_error and "unknown input" in bad.content[0].text
+    motion = pathlib.Path(gen.structured_content["result"]["files"]["motion"])
+    assert json.loads(motion.read_text())["mapping"] == override
+
+
+def test_bridge_check_through_the_mcp_sdk(env):
+    pytest.importorskip("mcp")
+    from mcp import Client
+
+    async def go():
+        async with Client(M.build_server(env["jobs"](), M.Policy(read_only=True))) as c:
+            ok = await c.call_tool("v2l_bridge_check", {"func": "MyEar * 2", "mapping": {
+                "bridge": [{"name": "MyEar", "func": "GazeX", "min": -1, "max": 1}]}})
+            bad = await c.call_tool("v2l_bridge_check", {"func": "max(JawOpen,"})
+            return ok, bad
+    ok, bad = run(go())
+    assert ok.structured_content["valid"] and ok.structured_content["inputs"] == ["MyEar"]
+    assert not bad.structured_content["valid"] and bad.structured_content["problem"]["position"] == len("max(JawOpen,")

@@ -17,14 +17,15 @@ const dlg = document.getElementById("settings");
 
 export const SECTIONS = ["general", "compute", "output", "generation", "tuning", "presets", "viewer", "camera", "agents", "advanced", "about"];
 // Schema fields shown outside Tuning; the bench owns the trim range.
-const GENERATION_KEYS = ["style.name", "output.loop", "input.flip", "expressions.enabled", "expressions.stride", "output.fps", "output.fade", "bridge.preset"];
+const GENERATION_KEYS = ["style.name", "output.loop", "output.interpolation", "input.flip", "expressions.enabled", "expressions.stride", "output.fps", "output.fade", "bridge.preset"];
 const OUTPUT_KEYS = ["preview.enabled"];
 const PER_RUN_ONLY = ["input.start", "input.end"];
 const TUNING_GROUPS = ["calibration", "intensity", "gaps", "expressions", "style", "filtering", "bridge", "io"];
 const SMOOTHING_MARKS = [["prefs.smoothing.crisp", 1.5], ["prefs.smoothing.normal", 1.0], ["prefs.smoothing.smooth", 0.6]];
-const CHOICE_KEYS = { "style.name": { cute: "settings.styleCute", faithful: "settings.styleFaithful" } };
+const CHOICE_KEYS = { "style.name": { cute: "settings.styleCute", faithful: "settings.styleFaithful" },
+                      "output.interpolation": { linear: "editor.type.linear", bezier: "editor.type.bezier" } };
 
-let hooks = { benchCommand: async () => null, onCheck: () => {}, cameras: async () => [] };
+let hooks = { benchCommand: async () => null, onCheck: () => {}, cameras: async () => [], openMapping: () => {}, hasModel: () => false };
 let active = "general";
 let query = "";
 let syncs = [];
@@ -451,7 +452,16 @@ function generation() {
     appSelect("generation.preset", "prefs.generation.preset", "prefs.generation.preset.help",
       () => prefs.presets().map((p) => [p.name, presetTitle(p)])),
     ...GENERATION_KEYS.map((k) => fieldRow(k)),
+    mappingRow(),
   ];
+}
+
+// Deep link to the open model's mapping editor (overrides are stored per model).
+function mappingRow() {
+  const button = h("button", { type: "button", text: t("mapping.open"), onclick: () => { dlg.close(); hooks.openMapping(); } });
+  const r = actionRow("prefs.mapping", "prefs.mapping.help", button);
+  syncs.push(() => { button.disabled = !hooks.hasModel(); });
+  return r.node;
 }
 
 function tuningGroups() {

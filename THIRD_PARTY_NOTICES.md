@@ -7,9 +7,12 @@ under their own licenses. Using them means accepting those licenses.
 
 ## Included in this repository
 
-V2L Studio inlines six [Lucide](https://lucide.dev) icons as SVG markup: `settings`, `x`,
-`rotate-ccw`, `ellipsis`, `lock` and `check` (in `app/renderer/`). `x`, `ellipsis` (formerly
-`more-horizontal`), `lock` and `check` are derived from [Feather](https://feathericons.com).
+V2L Studio inlines 21 [Lucide](https://lucide.dev) icons as SVG markup (in `app/renderer/`):
+`settings`, `ellipsis`, `sliders-horizontal`, `x`, `rotate-ccw`, `lock`, `check`, `undo-2`,
+`redo-2`, `plus`, `trash-2`, `magnet`, `scan`, `eye`, `eye-off`, `circle-help`, `spline`, `copy`,
+`clipboard-paste`, `timer` and `waves`. Of these, `ellipsis` (formerly `more-horizontal`), `x`,
+`lock`, `check`, `plus`, `trash-2` and `circle-help` (formerly `help-circle`) are derived from
+[Feather](https://feathericons.com). The interpolation and step glyphs are V2L's own drawings.
 
 ```text
 ISC License
@@ -86,8 +89,9 @@ Rendering also uses an installed Google Chrome, under Google's terms.
   [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge). V2L's interpreter is its own
   implementation; no SnenkBridge code or presets are included. Presets by other authors can be
   loaded with `--bridge FILE` and remain under their authors' terms.
-- V2L Studio's light and dark color values follow the gray and magenta scales of
-  [Adobe Spectrum 2 design tokens](https://github.com/adobe/spectrum-tokens) (Apache-2.0); no
+- V2L Studio's neutral colors in both themes and the dark theme's accent follow the gray and
+  magenta scales of [Adobe Spectrum 2 design tokens](https://github.com/adobe/spectrum-tokens)
+  (Apache-2.0); the light theme's accent is V2L's coral `#FD7688` with shades derived from it. No
   Spectrum files are included.
 - The built-in bridge preset ([`src/v2l/bridges/default.json`](src/v2l/bridges/default.json)) was
   written for V2L.

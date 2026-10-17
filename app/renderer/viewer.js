@@ -63,6 +63,16 @@ export class Viewer {
     if (this.model) this.model.internalModel.physics = on ? this.saved.physics : undefined;
   }
 
+  // Parameter limits from the Cubism Core: Map(id -> {min, max, default}); parts as ids.
+  parameters() {
+    if (!this.model) return { params: new Map(), parts: [] };
+    const m = this.model.internalModel.coreModel._model;
+    const p = m.parameters;
+    const params = new Map();
+    for (let i = 0; i < p.count; i++) params.set(p.ids[i], { min: p.minimumValues[i], max: p.maximumValues[i], default: p.defaultValues[i] });
+    return { params, parts: [...m.parts.ids] };
+  }
+
   setFrame(preset) {
     this.preset = preset;
     this.zoom = 1;

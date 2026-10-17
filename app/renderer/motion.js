@@ -2,7 +2,9 @@
 // (scrubbing, pausing) instead of the runtime's own timer.
 //
 // Segment types: 0 linear, 1 bezier, 2 stepped, 3 inverse stepped. Bezier x(u) is inverted by
-// bisection, which is exact for both restricted and unrestricted control points.
+// bisection, which is exact for both restricted and unrestricted control points. At a key time
+// the segment that starts there applies (as in the Cubism Framework and `v2l.motionedit eval`),
+// so an inverse-stepped segment already gives its end value at its start time.
 
 export function parseMotion(json) {
   const meta = json.Meta || {};
@@ -47,13 +49,13 @@ function bezier(seg, t) {
 
 export function valueAt(curve, t) {
   const segs = curve.segs;
-  if (!segs.length || t <= curve.first[0]) return curve.first[1];
-  // Binary search for the segment that contains t.
+  if (!segs.length || t < curve.first[0]) return curve.first[1];
   let lo = 0, hi = segs.length - 1;
   if (t >= segs[hi].p1[0]) return segs[hi].p1[1];
+  // Binary search for the segment with p0 <= t < p1.
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (segs[mid].p1[0] < t) lo = mid + 1; else hi = mid;
+    if (segs[mid].p1[0] <= t) lo = mid + 1; else hi = mid;
   }
   const seg = segs[lo];
   switch (seg.type) {

@@ -402,6 +402,8 @@ function cliCommand(o) {
   const args = ["v2l", "run", o.video || "VIDEO", "--model", o.modelDir || "MODEL_DIR", "--name", o.name || "NAME",
                 "--out", path.join(outDir(), o.name || "NAME")];
   if (preset !== "default") args.push("--preset", preset);
+  const mapping = o.modelDir ? mappingOverrides(o.modelDir) : null;
+  if (mapping) args.push("--mapping", mapping);
   for (const [sid, values] of Object.entries(sets)) {
     for (const [name, value] of Object.entries(values)) args.push("--set", `${sid}.${name}=${cliValue(value)}`);
   }
@@ -555,10 +557,24 @@ async function viewCopy(dir, maxTex) {
   return dest;
 }
 
+// Motions in the model folder and its subfolders (models often keep them in motions/), two levels deep.
 async function listMotions(dir) {
-  const names = (await fsp.readdir(dir)).filter((f) => f.endsWith(".motion3.json")).sort();
+  const found = [];
+  const walk = async (rel, depth) => {
+    let entries = [];
+    try { entries = await fsp.readdir(path.join(dir, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith(".")) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory() && depth < 2) await walk(r, depth + 1);
+      else if (e.isFile() && e.name.endsWith(".motion3.json")) found.push(r);
+    }
+  };
+  await walk("", 0);
+  found.sort((a, b) => (a.includes("/") - b.includes("/")) || a.localeCompare(b));
   const url = rootUrl(dir);
-  return names.map((f) => ({ name: f.replace(/\.motion3\.json$/, ""), file: path.join(dir, f), url: `${url}/${encodeURIComponent(f)}` }));
+  return found.map((r) => ({ name: path.basename(r).replace(MOTION_RE, ""), label: r.replace(MOTION_RE, ""), file: path.join(dir, r),
+                             url: `${url}/${r.split("/").map(encodeURIComponent).join("/")}` }));
 }
 
 function hasModel(dir) {
@@ -916,26 +932,52 @@ async function installMotion(file, modelDir) {
   return dest;
 }
 
-// o: {video, modelDir, name, preset, perRun: {"section.name": value}, suffix?: true}
+// o: {video, modelDir, name, preset, perRun: {"section.name": value}, suffix?: true,
+//     reuseConfig?: <configFile of an earlier run>, preview?: true, mapping?: <draft v2l.mapping>}.
+// The model's saved mapping overrides apply, or the draft for a preview. Previews go to a
+// temporary folder ("Keep" moves them to the output folder) and are never installed.
+const previewsDir = () => path.join(app.getPath("userData"), "previews");
 ipcMain.handle("run:start", async (_e, o) => {
   if (job) throw new Error(t("main.busy"));
   if (task) throw new Error(t("main.taskBusy"));
   let name = String(o.name || "");
   if (!NAME_RE.test(name)) throw new Error(t("main.badName"));
-  const out = outDir();
+  const out = o.preview ? previewsDir() : outDir();
   const mode = appValue("compute.mode");
   if (mode === "remote" && !appValue("compute.host")) throw new Error(t("main.noHost"));
-  if (o.suffix) {
-    for (let n = 2; fs.existsSync(path.join(out, name)); n++) name = `${String(o.name).replace(/_\d+$/, "").slice(0, 74)}_${n}`;
+  const taken = (n) => fs.existsSync(path.join(out, n)) || (o.preview && fs.existsSync(path.join(outDir(), n)));
+  if (o.suffix || o.preview) {
+    for (let n = 2; taken(name); n++) name = `${String(o.name).replace(/_\d+$/, "").slice(0, 74)}_${n}`;
   } else name = freeName(out, name);
-  const preset = PRESET_RE.test(o.preset || "") ? o.preset : "default";
-  if (preset !== "default") await refreshPresets();
-  const config = sparseAgainst(effectiveConfig(preset, o.perRun || {}), schemaDefaults);
-  const configFile = path.join(app.getPath("userData"), "runs", `${name}.json`);
-  const tmp = await writeJsonAtomic(configFile, { version: 1, ...config });
+  const runsDir = path.join(app.getPath("userData"), "runs");
+  const configFile = path.join(runsDir, `${name}.json`);
+  let body;
+  if (o.reuseConfig) {
+    // "Apply mapping": the same configuration as the earlier run, so tracking is reused.
+    const prior = inside(runsDir, path.relative(runsDir, String(o.reuseConfig)));
+    if (!prior || !fs.existsSync(prior)) throw new Error(t("main.runConfigMissing"));
+    body = JSON.parse(await fsp.readFile(prior, "utf8"));
+  } else {
+    const preset = PRESET_RE.test(o.preset || "") ? o.preset : "default";
+    if (preset !== "default") await refreshPresets();
+    body = { version: 1, ...sparseAgainst(effectiveConfig(preset, o.perRun || {}), schemaDefaults) };
+  }
+  const tmp = await writeJsonAtomic(configFile, body);
   try { await validateFile(tmp); await fsp.rename(tmp, configFile); } finally { await fsp.rm(tmp, { force: true }); }
+  let mapping = mappingOverrides(o.modelDir);
+  if (o.mapping) {
+    const draft = checkMapping({ ...o.mapping, format: "v2l.mapping" });
+    mapping = null;
+    if (!mappingEmpty(draft)) {
+      mapping = path.join(runsDir, `${name}.mapping.json`);
+      const part = await writeJsonAtomic(mapping, draft);
+      try { await validateMapping(part); await fsp.rename(part, mapping); } finally { await fsp.rm(part, { force: true }); }
+    }
+  }
 
-  const common = ["--model", o.modelDir, "--name", name, "--no-install", "--config", configFile, "--json", "--progress", "json"];
+  // --dump-signals: inputs and bridge outputs over time, for the mapping editor's graphs.
+  const common = ["--model", o.modelDir, "--name", name, "--no-install", "--config", configFile, ...(mapping ? ["--mapping", mapping] : []),
+                  "--dump-signals", "--json", "--progress", "json"];
   const [cmd, args, env, cwd] = mode === "remote"
     ? [REMOTE, ["run", o.video, ...common.slice(0, 4), "--out", out, ...common.slice(4)], computeEnv(), ROOT]
     : [executable(), ["run", o.video, ...common.slice(0, 4), "--out", path.join(out, name), ...common.slice(4)], ENV, out];
@@ -971,21 +1013,42 @@ ipcMain.handle("run:start", async (_e, o) => {
     const pick = (p, fallback) => (p ? path.resolve(cwd, p) : fallback);
     const motionFile = pick(final?.files?.motion, path.join(dir, `${name}.motion3.json`));
     const reportFile = pick(final?.files?.report, path.join(dir, `${name}.report.json`));
+    const signalsFile = pick(final?.files?.signals, path.join(dir, `${name}.signals.json`));
     let report = null;
     try { report = JSON.parse(await fsp.readFile(reportFile, "utf8")); } catch { /* failed run */ }
     const ok = code === 0 && fs.existsSync(motionFile);
     const result = {
-      code: signal ? null : code, cancelled, name, dir, mode, configFile,
+      code: signal ? null : code, cancelled, name, dir, mode, configFile, mappingFile: mapping, preview: !!o.preview,
       motion: ok ? { file: motionFile, url: fileUrl(motionFile), name } : null,
+      signals: ok && fs.existsSync(signalsFile) ? signalsFile : null,
       report, error: final && final.ok === false ? final.error : null, summary: final?.summary || null, installed: null,
     };
-    if (ok && appValue("output.autoInstall") && o.modelDir) {
+    if (ok && !o.preview && appValue("output.autoInstall") && o.modelDir) {
       try { result.installed = await installMotion(motionFile, o.modelDir); } catch (err) { send("run:log", err.message); }
     }
     send("run:done", result);
   });
   return { name };
 });
+
+// A kept preview moves from the temporary folder into the output folder (files keep their names).
+function previewDir(dir) {
+  const resolved = path.resolve(String(dir || ""));
+  if (path.dirname(resolved) !== previewsDir() || !fs.existsSync(resolved)) throw new Error(t("main.previewMissing"));
+  return resolved;
+}
+ipcMain.handle("run:keep", async (_e, { dir }) => {
+  const src = previewDir(dir);
+  const name = path.basename(src);
+  if (fs.existsSync(path.join(outDir(), name))) throw new Error(t("main.exists"));
+  await fsp.mkdir(outDir(), { recursive: true });
+  const dest = path.join(outDir(), name);
+  try { await fsp.rename(src, dest); } catch { await fsp.cp(src, dest, { recursive: true }); await fsp.rm(src, { recursive: true, force: true }); }
+  const motion = path.join(dest, `${name}.motion3.json`);
+  const signals = path.join(dest, `${name}.signals.json`);
+  return { dir: dest, motion: { file: motion, url: fileUrl(motion), name }, signals: fs.existsSync(signals) ? signals : null };
+});
+ipcMain.handle("run:discard", async (_e, { dir }) => { await fsp.rm(previewDir(dir), { recursive: true, force: true }); return true; });
 
 ipcMain.handle("run:cancel", async () => {
   const active = job;
@@ -1004,6 +1067,239 @@ ipcMain.handle("run:cancel", async () => {
 ipcMain.handle("run:report", async (_e, file) => JSON.parse(await fsp.readFile(file, "utf8")));
 
 ipcMain.handle("motion:install", async (_e, { file, modelDir }) => installMotion(file, modelDir));
+
+// ---------------------------------------------------------------- IPC: motion editing
+
+// `python3 -m v2l.motionedit` (standard library only) reads, writes, edits and validates
+// motions; Studio edits interactively and writes through it so files match the CLI exactly.
+const scratch = () => path.join(app.getPath("temp"), `v2l-studio-${process.pid}`);
+let scratchId = 0;
+
+async function scratchFile(name, data) {
+  const dir = path.join(scratch(), String(++scratchId));
+  await fsp.mkdir(dir, { recursive: true });
+  const file = path.join(dir, name);
+  if (data !== undefined) await fsp.writeFile(file, typeof data === "string" ? data : JSON.stringify(data));
+  return file;
+}
+
+function toolError(out, stderr, code) {
+  const e = out?.error;
+  if (!e) return new Error(stderr.trim().split("\n").slice(-3).join("\n") || t("main.pythonFailed", { code }));
+  const problems = (e.problems || out.problems || []).slice(0, 6);
+  return new Error([e.message, ...problems].filter(Boolean).join("\n"));
+}
+
+async function motionTool(args, input) {
+  const r = await capture("python3", ["-m", "v2l.motionedit", ...args, "--json"], { env: PY_ENV, input });
+  const out = lastJson(r.stdout);
+  if (r.code !== 0 || !out || out.ok === false) throw toolError(out, r.stderr, r.code);
+  return out;
+}
+
+const MOTION_RE = /\.motion3\.json$/;
+const motionName = (file) => path.basename(file).replace(MOTION_RE, "");
+
+function checkMotionFile(file) {
+  if (typeof file !== "string" || !path.isAbsolute(file) || !MOTION_RE.test(file)) throw new Error(t("main.badMotionFile"));
+  return path.resolve(file);
+}
+
+async function rangesFile(ranges) {
+  return ranges && Object.keys(ranges).length ? scratchFile("ranges.json", ranges) : null;
+}
+
+ipcMain.handle("motion:read", async (_e, { file }) => {
+  file = checkMotionFile(file);
+  const out = await motionTool(["read", file]);
+  return { file, name: motionName(file), dir: path.dirname(file), motion: out.motion };
+});
+
+// Runs operations of the shared vocabulary (docs/motion-editing.md §4) on an editable motion
+// and returns the result; nothing is written.
+ipcMain.handle("motion:apply", async (_e, { motion, ops, ranges }) => {
+  const src = await scratchFile("edit.json", motion);
+  const args = ["edit", src, "--ops", "-", "--out", "-"];
+  const r = await rangesFile(ranges);
+  if (r) args.push("--ranges", r);
+  try {
+    const out = await motionTool(args, JSON.stringify({ operations: ops }));
+    return { motion: out.motion, counts: out.counts || null, curves: out.curves || null };
+  } finally { await fsp.rm(path.dirname(src), { recursive: true, force: true }); if (r) await fsp.rm(path.dirname(r), { recursive: true, force: true }); }
+});
+
+// mode: "new" (name, next to the source), "overwrite" (the source file) or "model" (copy into
+// the model folder, as "Save to model folder" for results).
+ipcMain.handle("motion:save", async (_e, { motion, mode, file, name, modelDir }) => {
+  file = checkMotionFile(file);
+  let dest;
+  if (mode === "new") {
+    if (!NAME_RE.test(name || "")) throw new Error(t("main.badName"));
+    dest = path.join(path.dirname(file), `${name}.motion3.json`);
+    if (fs.existsSync(dest) && !await confirm(t("main.motionExists", { name: path.basename(dest) }), path.dirname(dest), t("main.overwrite"))) return null;
+  } else if (mode === "overwrite") {
+    dest = file;
+    if (!await confirm(t("main.overwriteMotionMessage", { name: path.basename(file) }), t("main.overwriteMotionDetail"), t("main.overwrite"))) return null;
+  } else if (mode === "model") {
+    if (!modelDir || !hasModel(modelDir)) throw new Error(t("main.noModel"));
+    if (!NAME_RE.test(name || "")) throw new Error(t("main.badName"));
+    const staged = await scratchFile(`${name}.motion3.json`);
+    try {
+      await motionTool(["write", "-", "--out", staged, "--overwrite"], JSON.stringify(motion));
+      const installed = await installMotion(staged, modelDir);
+      return installed ? { file: installed, name: motionName(installed), dir: modelDir, url: fileUrl(installed) } : null;
+    } finally { await fsp.rm(path.dirname(staged), { recursive: true, force: true }); }
+  } else throw new Error(t("main.badSaveMode"));
+  // Written beside the destination, then renamed over it, so a failed write leaves the old file.
+  const tmp = path.join(path.dirname(dest), `.${path.basename(dest)}.${process.pid}.part.motion3.json`);
+  try {
+    const out = await motionTool(["write", "-", "--out", tmp, "--overwrite"], JSON.stringify(motion));
+    await fsp.rename(tmp, dest);
+    return { file: dest, name: motionName(dest), dir: path.dirname(dest), url: fileUrl(dest), counts: out.counts || null };
+  } finally { await fsp.rm(tmp, { force: true }); }
+});
+
+// ---------------------------------------------------------------- IPC: mapping
+
+// Overrides per model in ~/.config/v2l/mappings/<model folder name>.json: one `v2l.mapping` file
+// with three optional layers (input_curves, bridge, entries), each holding only changed fields.
+// The base comes from `v2l mapping show` on the compute side.
+const mappingsDir = () => path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "v2l", "mappings");
+const mappingFile = (modelDir) => path.join(mappingsDir(), `${path.basename(path.resolve(modelDir))}.json`);
+
+function mappingEmpty(m) { return !Object.keys(m.input_curves || {}).length && !(m.bridge || []).length && !(m.entries || []).length; }
+
+function mappingOverrides(modelDir) {
+  const file = modelDir ? mappingFile(modelDir) : null;
+  if (!file || !fs.existsSync(file)) return null;
+  try { return mappingEmpty(JSON.parse(fs.readFileSync(file, "utf8"))) ? null : file; } catch { return null; }
+}
+
+// Shape check of the three layers; Python validates the content.
+function checkMapping(data) {
+  const bad = () => new Error(t("main.notMapping"));
+  if (!data || data.format !== "v2l.mapping") throw bad();
+  const curves = data.input_curves ?? {};
+  const bridge = data.bridge ?? [];
+  const entries = data.entries ?? [];
+  if (typeof curves !== "object" || Array.isArray(curves) || !Array.isArray(bridge) || !Array.isArray(entries)) throw bad();
+  for (const c of Object.values(curves)) if (!c || !Array.isArray(c.points)) throw bad();
+  for (const b of bridge) if (!b || typeof b.name !== "string" || !b.name) throw bad();
+  for (const e of entries) if (!e || typeof e.output !== "string" || !e.output) throw bad();
+  const out = { format: "v2l.mapping", version: 1 };
+  if (Object.keys(curves).length) out.input_curves = curves;
+  if (bridge.length) out.bridge = bridge;
+  if (entries.length) out.entries = entries;
+  return out;
+}
+
+async function validateMapping(file) {
+  const r = await capture("python3", ["-m", "v2l.cli", "mapping", "validate", file, "--json"], { env: PY_ENV });
+  const out = lastJson(r.stdout);
+  if (r.code !== 0 || !out || out.ok === false) throw toolError(out, r.stderr, r.code);
+}
+
+// One `v2l ...` call on the configured compute side (v2l-remote for remote, the local executable).
+async function computeJson(args) {
+  const mode = appValue("compute.mode");
+  if (mode === "remote" && !appValue("compute.host")) throw new Error(t("main.noHost"));
+  const r = mode === "remote"
+    ? await capture(REMOTE, args, { env: computeEnv() })
+    : await capture(executable(), args, { env: ENV, cwd: os.homedir() });
+  const out = lastJson(r.stdout);
+  if (r.code !== 0 || !out || out.ok === false) throw toolError(out, r.stderr, r.code);
+  return out;
+}
+
+ipcMain.handle("mapping:show", async (_e, { modelDir }) => {
+  if (!modelDir || !hasModel(modelDir)) throw new Error(t("main.noModel"));
+  return computeJson(["mapping", "show", "--model", modelDir, "--json"]);
+});
+
+ipcMain.handle("mapping:inputs", async () => computeJson(["mapping", "inputs", "--json"]));
+
+ipcMain.handle("mapping:load", async (_e, { modelDir }) => {
+  const file = mappingFile(modelDir);
+  if (!fs.existsSync(file)) return { file, mapping: checkMapping({ format: "v2l.mapping" }) };
+  let data;
+  try { data = JSON.parse(await fsp.readFile(file, "utf8")); } catch (err) { throw new Error(t("main.notJson", { error: err.message })); }
+  return { file, mapping: checkMapping(data) };
+});
+
+ipcMain.handle("mapping:save", async (_e, { modelDir, mapping }) => {
+  if (!modelDir || !hasModel(modelDir)) throw new Error(t("main.noModel"));
+  const file = mappingFile(modelDir);
+  const data = checkMapping({ ...mapping, format: "v2l.mapping" });
+  if (mappingEmpty(data)) { await fsp.rm(file, { force: true }); return { file, mapping: data }; }
+  const tmp = await writeJsonAtomic(file, data);
+  try { await validateMapping(tmp); await fsp.rename(tmp, file); } finally { await fsp.rm(tmp, { force: true }); }
+  return { file, mapping: data };
+});
+
+ipcMain.handle("mapping:import", async () => {
+  const r = await dialog.showOpenDialog(win, { title: t("main.importMappingTitle"), properties: ["openFile"],
+                                               filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (r.canceled) return null;
+  let data;
+  try { data = JSON.parse(await fsp.readFile(r.filePaths[0], "utf8")); } catch (err) { throw new Error(t("main.notJson", { error: err.message })); }
+  return { name: path.basename(r.filePaths[0]), mapping: checkMapping(data) };
+});
+
+ipcMain.handle("mapping:export", async (_e, { modelDir, mapping }) => {
+  const r = await dialog.showSaveDialog(win, { title: t("main.exportMappingTitle"), defaultPath: `${path.basename(modelDir || "model")}.mapping.json`,
+                                               filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (r.canceled || !r.filePath) return null;
+  await fsp.writeFile(r.filePath, JSON.stringify(checkMapping({ ...mapping, format: "v2l.mapping" }), null, 1) + "\n");
+  return path.basename(r.filePath);
+});
+
+ipcMain.handle("mapping:reveal", async (_e, { modelDir }) => {
+  const file = mappingFile(modelDir);
+  if (fs.existsSync(file)) shell.showItemInFolder(file);
+  else { await fsp.mkdir(mappingsDir(), { recursive: true }); await shell.openPath(mappingsDir()); }
+});
+
+// Formula check for the bridge editor (standard library, runs here in both compute modes). The
+// draft mapping is passed so outputs added in the editor count as known names. An invalid
+// formula is a normal answer (ok: false with a problem), not an error.
+ipcMain.handle("bridge:check", async (_e, { func, mapping }) => {
+  const args = ["-m", "v2l.cli", "bridge", "check", "--func", String(func), "--json"];
+  let tmp = null;
+  if (mapping && !mappingEmpty(mapping)) { tmp = await scratchFile("mapping.json", checkMapping({ ...mapping, format: "v2l.mapping" })); args.push("--mapping", tmp); }
+  try {
+    const r = await capture("python3", args, { env: PY_ENV });
+    const out = lastJson(r.stdout);
+    if (!out) throw toolError(null, r.stderr, r.code);
+    // A draft mapping that does not load is reported as the formula's problem.
+    if (!out.tokens && out.error) return { ok: false, valid: false, tokens: [], unknown: [], problem: { message: out.error.message } };
+    return out;
+  } finally { if (tmp) await fsp.rm(path.dirname(tmp), { recursive: true, force: true }); }
+});
+
+// Plain JSON files for curve import/export.
+ipcMain.handle("json:open", async (_e, { title }) => {
+  const r = await dialog.showOpenDialog(win, { title: String(title), properties: ["openFile"], filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (r.canceled) return null;
+  try { return JSON.parse(await fsp.readFile(r.filePaths[0], "utf8")); } catch (err) { throw new Error(t("main.notJson", { error: err.message })); }
+});
+
+ipcMain.handle("json:save", async (_e, { title, name, data }) => {
+  const r = await dialog.showSaveDialog(win, { title: String(title), defaultPath: String(name || "data.json"), filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (r.canceled || !r.filePath) return null;
+  await fsp.writeFile(r.filePath, JSON.stringify(data, null, 1) + "\n");
+  return path.basename(r.filePath);
+});
+
+// Signals of a result (tracking inputs and bridge outputs over time) for the mapping graphs.
+ipcMain.handle("run:signals", async (_e, file) => {
+  if (typeof file !== "string" || !file.endsWith(".signals.json")) return null;
+  try { return JSON.parse(await fsp.readFile(file, "utf8")); } catch { return null; }
+});
+
+ipcMain.handle("dialog:confirm", async (_e, { message, detail, confirmLabel }) => confirm(String(message), String(detail || ""), String(confirmLabel)));
+
+// Native text undo/redo for the focused field (the Edit menu routes through the renderer).
+ipcMain.handle("edit:native", (_e, which) => { if (which === "redo") win?.webContents.redo(); else win?.webContents.undo(); });
 
 ipcMain.handle("reveal", (_e, p) => shell.showItemInFolder(p));
 
@@ -1050,7 +1346,11 @@ function buildMenu() {
       { role: "quit", label: t("main.menu.quit") },
     ] }] : [{ label: t("main.menu.file"), submenu: [settings, { type: "separator" }, { role: "quit", label: t("main.menu.quit") }] }]),
     { label: t("main.menu.edit"), submenu: [
-      { role: "undo", label: t("main.menu.undo") }, { role: "redo", label: t("main.menu.redo") }, { type: "separator" },
+      // Undo/Redo go to the renderer, which undoes text in a focused field natively (edit:native)
+      // and otherwise steps the motion editor's history.
+      { label: t("main.menu.undo"), accelerator: "CmdOrCtrl+Z", click: () => send("menu:edit", "undo") },
+      { label: t("main.menu.redo"), accelerator: mac ? "Shift+CmdOrCtrl+Z" : "CmdOrCtrl+Y", click: () => send("menu:edit", "redo") },
+      { type: "separator" },
       { role: "cut", label: t("main.menu.cut") }, { role: "copy", label: t("main.menu.copy") },
       { role: "paste", label: t("main.menu.paste") }, { role: "selectAll", label: t("main.menu.selectAll") },
     ] },
@@ -1121,4 +1421,9 @@ app.on("window-all-closed", () => {
   if (job) job.proc.kill("SIGTERM");
   if (task) task.proc?.kill("SIGTERM");
   app.quit();
+});
+
+// Scratch files and previews that were not kept are temporary.
+app.on("will-quit", () => {
+  for (const dir of [scratch(), previewsDir()]) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
 });

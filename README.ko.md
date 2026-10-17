@@ -25,8 +25,10 @@ video2live2d(V2L)는 얼굴과 어깨가 화면에 들어온 실제 사람의 �
 - **리그에 의존하지 않는 방향 점검.** 헤드리스 렌더 프로브가 각 파라미터가 화면에서 실제로 어떻게 움직이는지 측정해, 반대로 된 방향과 좌우가 바뀐 눈을 바로잡습니다. 결과는 모델별로 캐시됩니다.
 - **SnenkBridge 형식 브리지.** 내장 VBridger 스타일 브리지는 SnenkBridge 수식 언어의 안전한 인터프리터로 평가되며, `--bridge FILE`로 같은 형식의 다른 프리셋을 불러올 수 있습니다.
 - **두 가지 스타일.** `cute`(기본값)는 조금 더 밝고 생기 있는 연기를 더하고, `faithful`은 아무것도 더하지 않습니다.
-- **모든 값을 조정할 수 있습니다.** 입력, 캘리브레이션, 강도, 스무딩, 스타일 등 10개 섹션의 설정 66개가 CLI, V2L Studio, MCP 서버가 함께 쓰는 하나의 스키마에서 나옵니다. 내장 프리셋과 사용자 프리셋으로 묶어 쓸 수 있습니다.
+- **모든 값을 조정할 수 있습니다.** 입력, 캘리브레이션, 강도, 스무딩, 스타일 등 10개 섹션의 설정 67개가 CLI, V2L Studio, MCP 서버가 함께 쓰는 하나의 스키마에서 나옵니다. 내장 프리셋과 사용자 프리셋으로 묶어 쓸 수 있습니다.
 - **에이전트 친화적.** `--json`으로 JSON 결과 객체 하나, `--progress json`으로 JSON-lines 진행 이벤트, 문서화된 종료 코드, AI 에이전트용 MCP 서버를 제공합니다.
+- **모션 편집.** 구간마다 선형, 베지어, 계단, 역계단을 고를 수 있는 키프레임, 베지어 핸들, 다시 맞추기, 실행 취소를 V2L Studio의 커브 편집기나 `v2l motion` 작업으로 다룹니다.
+- **3단계 매핑 편집.** VBridger, SnenkBridge, VTube Studio의 파라미터 설정을 본떴습니다. 입력 커브, 수식과 SnenkBridge식 지연 버퍼·VBridger식 수정자(지연, 스무딩, 단계)가 있는 브리지 출력, 그리고 범위, 반전, 클램프, 반응 커브, 스무딩 차단 주파수를 정하는 파라미터별 매핑입니다.
 - **선택 기능: 볼 부풀리기와 혀 내밀기.** 제로샷 SigLIP 2 단계가 MediaPipe가 잘 잡지 못하는 표정을 점수화합니다.
 - **미리보기와 리포트.** 원본과 모델을 나란히 보여 주는 미리보기 영상과, 검출률·눈 깜빡임·범위 사용률·경고를 담은 `report.json`을 만듭니다.
 - **노트북 + 연산 호스트 워크플로.** 표준 라이브러리만 쓰는 `bin/v2l-remote`가 SSH로 다른 머신에서 파이프라인을 실행하고, V2L Studio는 이를 Live2D 뷰어와 웹캠 녹화가 있는 데스크톱 앱으로 감쌉니다.
@@ -70,12 +72,13 @@ flowchart LR
 | 캘리브레이션 | `src/v2l/calibrate.py` | 클립 전체에서 기본 표정(가장 움직임이 적은 구간)과 채널별 반응 폭을 찾습니다. |
 | 강도 | `src/v2l/calibrate.py` | 움직임 그룹(머리, 몸, 시선, 눈썹, 미소, 입, 볼/혀)을 `intensity.*` 설정에 따라 배율 조정합니다. |
 | 누락 구간 | `src/v2l/temporal.py` | 출력 프레임레이트로 리샘플링합니다. 0.4초(`gaps.max_gap`) 이하의 누락은 보간하고, 더 긴 누락은 기본 자세로 부드럽게 돌아갑니다. |
-| 브리지 | `src/v2l/bridge.py`, `src/v2l/bridges/default.json` | SnenkBridge 수식 언어의 안전한 AST 인터프리터로 VBridger 스타일 출력을 계산합니다. |
-| 매핑 | `src/v2l/mapping.py`, `src/v2l/model.py` | 모델의 VTube Studio 파라미터 설정을 재사용하고, 없으면 표준 Cubism id로 대체합니다. |
+| 브리지 | `src/v2l/bridge.py`, `src/v2l/bridges/default.json` | SnenkBridge 수식 언어의 안전한 AST 인터프리터로 VBridger 스타일 출력을 계산합니다. 매핑 파일로 출력을 고치거나 추가할 수 있으며, 지연 버퍼와 수정자도 쓸 수 있습니다. |
+| 매핑 | `src/v2l/mapping.py`, `src/v2l/model.py` | 모델의 VTube Studio 파라미터 설정을 재사용하고, 없으면 표준 Cubism id로 대체합니다. 매핑 파일(`--mapping`)로 어떤 항목이든 바꾸거나 새로 추가할 수 있습니다. |
 | 프로브 | `src/v2l/render.py`, `src/v2l/web/` | 모델을 헤드리스로 렌더링해 반대 방향과 바뀐 눈 좌우를 바로잡습니다. |
 | 스타일 | `src/v2l/style.py` | `cute` 또는 `faithful`. |
-| 내보내기 | `src/v2l/motion3.py`, `src/v2l/pipeline.py` | 파라미터 그룹별 영위상 Butterworth 필터링, 각 파라미터 범위의 0.4 % 이내로 Ramer-Douglas-Peucker 단순화한 선형 세그먼트, 검증, 미리보기와 리포트. |
+| 내보내기 | `src/v2l/motion3.py`, `src/v2l/pipeline.py` | 파라미터 그룹별 영위상 Butterworth 필터링, 각 파라미터 범위의 0.4 % 이내로 Ramer-Douglas-Peucker 단순화한 선형 세그먼트(`output.interpolation=bezier`이면 제한된 베지어), 검증, 미리보기와 리포트. |
 | 설정 | `src/v2l/config.py`, `src/v2l/presets/` | 모든 단계가 쓰는 설정 스키마, 검증, 프리셋. |
+| 편집 | `src/v2l/motionedit.py`, `src/v2l/inputs.py` | 편집 가능한 모션 형식, 편집 작업, 피팅, 검증, 그리고 매핑이 쓸 수 있는 입력 목록. |
 
 물리 연산 출력 파라미터는 런타임에 맡깁니다. 프로브와 미리보기 렌더링은 Playwright가 설치된 Google Chrome을 SwiftShader(CPU 렌더링)로 구동합니다. GPU WebGL 백엔드에서는 매우 큰(8K) 텍스처로 컨텍스트가 유실되었기 때문입니다.
 
@@ -146,7 +149,8 @@ V2L_MODEL=~/Models/MyModel V2L_HOST=user@gpu-box bin/v2l-studio
 
 ```text
 v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config FILE]...
-        [--set SECTION.NAME=VALUE]... [shortcut flags] [--no-install] [--dry-run] [--json] [--progress text|json]
+        [--set SECTION.NAME=VALUE]... [shortcut flags] [--mapping FILE] [--dump-signals]
+        [--no-install] [--dry-run] [--json] [--progress text|json]
 ```
 
 설정은 다음 순서로 적용되며, 뒤에 오는 것이 우선합니다.
@@ -164,6 +168,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `--preset NAME\|FILE` | 없음 | 내장 프리셋, 사용자 프리셋 또는 프리셋 파일([설정과 프리셋](#설정과-프리셋) 참고). |
 | `--config FILE` | 없음 | JSON 설정 파일. 여러 번 지정할 수 있으며 뒤의 파일이 우선합니다. |
 | `--set SECTION.NAME=VALUE` | 없음 | 설정 하나. 예: `intensity.smile=1.5`, `calibration.neutral_window=2:3`. 여러 번 지정할 수 있으며 마지막에 적용됩니다. |
+| `--mapping FILE` | 없음 | 매핑 파일([모션과 매핑 편집](#모션과-매핑-편집) 참고). |
+| `--dump-signals` | 끔 | `NAME.signals.json`도 씁니다. 프레임별 트래킹 입력과 브리지 출력이 들어 있습니다. |
 | `--no-install` | 끔 | 모션을 모델 폴더에 복사하지 않습니다. |
 | `--dry-run` | 끔 | 입력과 설정을 점검하고, 예정된 출력 파일과 최종 설정을 출력합니다. 트래킹은 하지 않습니다. |
 | `--json` | 끔 | stdout에 JSON 결과 객체 하나만 출력하고, 나머지는 모두 stderr로 보냅니다. |
@@ -183,12 +189,14 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `--flip` | `input.flip=true` | 입력이 좌우 반전으로 녹화되었습니다(셀피 카메라). |
 | `--start S`, `--end S` | `input.start`, `input.end` | 클립의 일부만 사용합니다(초). |
 | `--neutral A:B` | `calibration.neutral_window` | 기본 표정 구간(초). `--start` 기준입니다. 기본값: 자동 탐색. |
-| `--bridge NAME\|FILE` | `bridge.preset` | 내장 브리지 프리셋 이름(기본값 `default`) 또는 SnenkBridge 형식 JSON 파일. |
+| `--bridge NAME\|FILE` | `bridge.preset` | 내장 브리지 프리셋 이름(기본값 `default`) 또는 SnenkBridge 형식 JSON 파일. 파라미터 목록 그대로이거나 `snek` 프리셋이며, `delayBuffer` 출력도 지원합니다. |
 | `--no-preview` | `preview.enabled=false` | 미리보기 영상을 만들지 않습니다. |
 | `--no-rare` | `expressions.enabled=false` | 볼 부풀리기 / 혀 내밀기 단계를 건너뜁니다. |
 | `--rare-stride N` | `expressions.stride` | N 프레임마다 볼 부풀리기 / 혀 내밀기 점수를 매깁니다(기본값 3). |
 
 </details>
+
+**커브 보간.** `output.interpolation`의 기본값은 `linear`입니다. `--set output.interpolation=bezier`는 제한된 베지어 세그먼트를 씁니다. 키는 약 절반으로 줄고 편집하기 쉬워지지만, 베지어 세그먼트 하나가 점 세 개로 계산되므로 파일은 커집니다.
 
 **JSON 결과** (`--json`):
 
@@ -214,7 +222,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 |---|---|
 | `0` | 성공 |
 | `1` | `runtime`, `remote` |
-| `2` | `usage`, `config`, `input` |
+| `2` | `usage`, `config`, `input`, `invalid`(검증을 통과하지 못한 모션, 편집 작업, 매핑, 수식) |
 | `3` | `unusable_input`: 영상이 열리지 않거나 얼굴이 트래킹되지 않음 |
 | `4` | `remote_unreachable`: 연산 호스트에 연결할 수 없음 |
 | `130` | `interrupted`, `cancelled` |
@@ -232,9 +240,12 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `v2l config presets` | 내장 프리셋과 사용자 프리셋을 JSON으로 출력합니다. |
 | `v2l config validate FILE...` | 설정 파일을 검사하고 병합 결과를 출력합니다. |
 | `v2l version [--json]` | V2L 버전. |
+| `v2l motion info\|read\|write\|edit\|refit\|eval\|validate ...` | 모션 파일을 살펴보고, 변환하고, 편집하고, 다시 맞추고, 샘플링하고, 검증합니다. |
+| `v2l mapping show\|inputs\|validate ...` | 각 값의 출처를 포함한 모델의 최종 매핑, 매핑이 쓸 수 있는 입력, 매핑 파일 검증. |
+| `v2l bridge show\|check\|validate ...` | 최종 브리지 출력, 수식 하나 검사, SnenkBridge 프리셋이나 매핑의 bridge 섹션 검증. |
 | `v2l mcp [...]` | MCP 서버([에이전트](#에이전트-mcp--cli) 참고). |
 
-`v2l config`, `v2l presets`, `v2l version`은 표준 라이브러리만 있으면 됩니다.
+`v2l config`, `v2l presets`, `v2l version`, `v2l motion`, `v2l bridge`, 그리고 `--model` 없이 쓰는 `v2l mapping inputs|validate`는 표준 라이브러리만 있으면 됩니다. 형식과 모든 옵션: [docs/motion-editing.md](docs/motion-editing.md).
 
 ### `bin/v2l-remote`
 
@@ -243,6 +254,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `setup` | `V2L_HOST`에 코드를 올리고 `.venv`를 만든 뒤 `pip install -e '.[test]'`를 실행하고, 트래커 모델, Cubism Core, 렌더러 라이브러리를 미리 내려받습니다. |
 | `run VIDEO --model DIR --name NAME [--out DIR] [--no-install] [--json] [--progress text\|json] [v2l run options...]` | 호스트에서 `v2l run`을 실행하고 결과를 `OUT/NAME/`으로 가져옵니다(`--out` 기본값은 `V2L_OUT`, 없으면 `~/Downloads/v2l_out`). |
 | `probe --model DIR [--details] [--json]` | 로컬 모델을 호스트에서 프로브합니다. |
+| `mapping show --model DIR [--mapping FILE] [--json]` | 로컬 모델의 최종 매핑을 호스트에서 계산합니다. |
+| `mapping inputs\|validate ...`, `bridge ...` | 노트북에서 실행하며 `V2L_HOST`가 필요 없습니다. |
 | `check [--json]` | 호스트에 연결되는지, V2L이 설치되어 있는지 확인합니다. |
 | `version [--json]` | 로컬 V2L 코드의 버전. |
 | `test` | 호스트에서 단위 테스트를 실행합니다. |
@@ -252,6 +265,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 - `--preset`, `--config` 파일, 단축 플래그, `--set`은 **노트북에서** 해석되므로 사용자 프리셋과 로컬 파일이 그대로 쓰입니다. 실행마다 최종 설정을 담은 파일 하나(로컬 브리지 파일이 있으면 그것도)를 업로드하고 끝나면 지웁니다. 잘못된 설정은 업로드 전에 실패합니다.
 - `--dry-run`은 연결 없이 노트북에서 실행됩니다.
+- `--mapping FILE`은 설정 파일처럼 업로드되고 실행 후 지워집니다. `--dump-signals`를 주면 신호 파일도 결과와 함께 돌아옵니다.
 - `v2l-remote`를 멈추면(Ctrl-C, SIGTERM, SIGHUP) 호스트의 작업도 멈추고 그 실행의 파일을 지운 뒤 130으로 종료합니다.
 
 ### 환경 변수
@@ -268,12 +282,12 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 ## 설정과 프리셋
 
-조정 가능한 값은 모두 하나의 스키마 `src/v2l/config.py`에 있습니다. 10개 섹션에 설정 66개입니다. CLI, V2L Studio, MCP 서버가 같은 스키마를 읽으므로 설정 이름, 범위, 의미가 어디서나 같습니다. 알 수 없는 키, 잘못된 타입, 범위를 벗어난 값은 오류입니다.
+조정 가능한 값은 모두 하나의 스키마 `src/v2l/config.py`에 있습니다. 10개 섹션에 설정 67개입니다. CLI, V2L Studio, MCP 서버가 같은 스키마를 읽으므로 설정 이름, 범위, 의미가 어디서나 같습니다. 알 수 없는 키, 잘못된 타입, 범위를 벗어난 값은 오류입니다.
 
 | 섹션 | 조정 대상 | 예시 키 |
 |---|---|---|
 | `input` | 영상의 어느 부분을 어떻게 읽을지. | `start`, `end`, `flip` |
-| `output` | 모션의 프레임레이트, 페이드, 반복, 파일 크기. | `fps`, `loop`, `breath_period` |
+| `output` | 모션의 프레임레이트, 페이드, 반복, 파일 크기. | `fps`, `loop`, `interpolation` |
 | `calibration` | 기본 표정과 각 표정의 최대 폭을 추정하는 방법. | `neutral_window`, `jaw_full`, `gaze_full` |
 | `intensity` | 움직임 그룹별 전체 세기. | `head`, `smile`, `mouth_open` |
 | `gaps` | 얼굴을 잠시 놓쳤을 때의 처리. | `max_gap`, `ramp` |
@@ -289,7 +303,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | 섹션 | 설정 |
 |---|---|
 | `input` | `start`, `end`, `flip`, `analysis_width` |
-| `output` | `fps`, `fade`, `loop`, `loop_blend`, `breath_period`, `tolerance` |
+| `output` | `fps`, `fade`, `loop`, `loop_blend`, `breath_period`, `interpolation`, `tolerance` |
 | `calibration` | `neutral_window`, `neutral_seconds`, `rest_head_range`, `full_percentile`, `min_span`, `max_gain`, `blink_deadzone`, `blink_landmark_weight`, `eye_closed_ratio`, `eye_wide_range`, `jaw_full`, `lip_gap_full`, `mouth_narrow_full`, `mouth_wide_full`, `mouth_shift_full`, `gaze_full` |
 | `intensity` | `head`, `body`, `gaze`, `brows`, `smile`, `mouth_open`, `mouth_shape`, `cheek_tongue` |
 | `gaps` | `max_gap`, `ramp` |
@@ -336,6 +350,80 @@ v2l presets save talk_show talk_show.json
 v2l run clip.mp4 --model ~/Models/MyModel --name hello --preset talk_show --set intensity.smile=1.5
 ```
 
+## 모션과 매핑 편집
+
+모션과 매핑은 생성한 뒤에도 CLI, MCP 서버, V2L Studio에서 편집할 수 있습니다. 파일 형식, 모든 작업, 수식 문법, 모든 명령 옵션은 전체 명세인 [docs/motion-editing.md](docs/motion-editing.md)에 있습니다.
+
+### 모션
+
+모션은 일반적인 `.motion3.json` 파일입니다. 두 키 사이의 각 구간은 선형, 베지어, 계단, 역계단 중 하나입니다. V2L은 **제한된 베지어**(`AreBeziersRestricted`)를 씁니다. 두 제어점이 구간 시간의 1/3과 2/3 지점에 있어 값이 시간에 대한 3차 다항식이 되므로, 모든 Cubism 런타임이 같은 방식으로 계산합니다. 편집기는 제어값만 바꿉니다. 다른 도구가 만든 베지어는 정확히 읽고, 그 구간을 편집할 때만 변환합니다.
+
+`v2l motion read`는 편집 가능한 JSON(키, 구간별 유형, 핸들)을 돌려줍니다. `v2l motion edit`는 작업 목록을 순서대로 적용합니다: 키 추가·이동·삭제, 보간과 핸들 설정, 자동·평탄 접선, 다시 맞추기, 배율, 오프셋, 클램프, 시간 조정, 자르기, 타이밍. 잘못된 작업은 그 순번과 함께 보고되며 아무것도 쓰지 않습니다. 기존 출력 파일은 `--overwrite`가 있을 때만 바꿉니다.
+
+```json
+[
+  {"op": "insert_key", "curve": "ParamAngleX", "t": 1.0, "value": 12},
+  {"op": "set_interpolation", "curves": ["ParamAngleX"], "type": "bezier", "from": 0.5, "to": 2.0},
+  {"op": "refit", "curves": "*", "tolerance": 0.004, "interpolation": "bezier"},
+  {"op": "trim", "from": 1.0, "to": 13.0}
+]
+```
+
+```bash
+v2l motion read hello.motion3.json --json                # editable JSON: keys, segment types, handles
+v2l motion edit hello.motion3.json --ops ops.json --out hello_edit.motion3.json --json
+v2l motion refit hello.motion3.json --interpolation bezier --tolerance 0.004 --out hello_bezier.motion3.json
+```
+
+### 매핑
+
+매핑 파일(`--mapping FILE`)은 모델별로 트래킹이 Live2D 파라미터에 닿는 방식을 바꿉니다. 세 단계로 되어 있고, 트래킹 뒤에 이 순서로 적용됩니다.
+
+| 단계 | 본뜬 대상 | 바꾸는 것 |
+|---|---|---|
+| `input_curves` | VBridger의 입력 커브 | 트래킹 입력의 모양을 바꿉니다. 예: 끝까지 뜨지 않는 눈도 1에 닿게 하기. |
+| `bridge` | SnenkBridge 프리셋, VBridger 수정자 | 브리지 출력을 고치거나 추가하거나 끕니다: 수식, SnenkBridge식 `delayBuffer`, 수정자 `delayMs`, `smoothing`, `steps`. |
+| `entries` | VTube Studio 파라미터 설정 | Live2D 파라미터별로 입력, 입력·출력 범위, 반전, 클램프, 반응 커브, 스무딩 차단 주파수, 호흡, 켜기/끄기. |
+
+```json
+{
+  "format": "v2l.mapping",
+  "version": 1,
+  "input_curves": {"EyeWideLeft": {"points": [[0, 0], [0.6, 1], [1, 1]], "smooth": true}},
+  "bridge": [
+    {"name": "MouthOpen", "modifiers": {"smoothing": 0.2}},
+    {"name": "EarSwing", "func": "", "min": -1, "max": 1, "defaultValue": 0,
+     "delayBuffer": {"refParam": "FaceAngleX", "smoothing": 3, "delayCount": 8,
+                     "inMin": -20, "inMax": 20, "outMin": -1, "outMax": 1}}
+  ],
+  "entries": [
+    {"output": "ParamAngleX", "in": [-25, 25], "out": [-30, 30], "cutoff": 2.0},
+    {"output": "ParamEarL", "input": "EarSwing"},
+    {"output": "ParamBodyAngleZ", "enabled": false}
+  ]
+}
+```
+
+```bash
+v2l mapping inputs --json                               # input names, meaning, nominal range
+v2l mapping show --model ~/Models/MyModel --mapping MyModel.json
+v2l bridge check --func "0.5 + 0.5 * (MouthSmileLeft + MouthSmileRight)"
+v2l run clip.mp4 --model ~/Models/MyModel --name hello --mapping MyModel.json --dump-signals
+```
+
+바꾼 값만 저장되고, 나머지는 렌더 프로브의 방향 보정을 거친 모델의 `*.vtube.json` 또는 표준 매핑에서 가져옵니다. 수식은 SnenkBridge 문법을 따르며, 차이점은 명세에 정리되어 있습니다. 세 단계는 트래킹 뒤에 적용되므로, 매핑을 바꿔도 트래킹 캐시를 재사용합니다. `--dump-signals`는 프레임별 입력과 브리지 출력을 담은 `NAME.signals.json`을 써서, 매핑이 보는 값을 그래프로 그릴 수 있게 합니다.
+
+### V2L Studio에서
+
+모션 편집기와 매핑 편집기([V2L Studio](#v2l-studio) 참고)는 같은 형식을 다루고 같은 작업을 호출합니다.
+
+<p align="center"><img src="docs/assets/motion-editor-light.png" alt="라이트 테마의 V2L Studio 모션 편집기: 파라미터 목록, 키프레임과 베지어 핸들이 있는 커브 그래프, 인스펙터" width="80%"></p>
+
+<p align="center">
+<img src="docs/assets/mapping-bridge-light.png" alt="라이트 테마의 V2L Studio 매핑 편집기: 수식과 수정자가 있는 브리지 출력 탭" width="49%">
+<img src="docs/assets/mapping-inputs-dark.png" alt="다크 테마의 V2L Studio 매핑 편집기: 입력 커브가 있는 입력 탭" width="49%">
+</p>
+
 ## 에이전트 (MCP & CLI)
 
 AI 에이전트는 두 가지 방법으로 V2L을 다룰 수 있습니다. `--json`과 `--progress json`을 쓰는 CLI, 그리고 stdio로 동작하는 [MCP](https://modelcontextprotocol.io/) 서버입니다. 이미 셸 명령을 실행하는 코딩 에이전트에는 CLI가 더 가볍습니다. MCP 서버는 채팅·데스크톱 클라이언트에 적합합니다.
@@ -378,7 +466,12 @@ JSON으로 설정하는 클라이언트:
 | `v2l_validate_settings(settings?, preset?)` | 설정만 시험 적용: 프리셋과 부분 설정을 적용하고 검사합니다. |
 | `v2l_probe_model(model, details?)` | 모델의 파라미터와 화면상 방향을 프로브합니다. |
 | `v2l_list_motions(model)` | 모델 폴더의 `*.motion3.json` 파일 목록. |
-| `v2l_generate(video, model, name, preset?, settings?, preview?, out_dir?, install?, job?, wait_seconds?)` | 생성 작업을 시작하거나 이어 갑니다. |
+| `v2l_mapping_get(model, mapping?)` | 모델의 최종 매핑(세 단계 모두)과 쓸 수 있는 입력. |
+| `v2l_bridge_check(func, mapping?)` | 브리지 수식 하나를 검사합니다: 읽는 이름, 알 수 없는 이름, 오류 위치. |
+| `v2l_motion_info(motion)` | 모션의 커브, 세그먼트 유형, 개수, 문제점. |
+| `v2l_motion_read(motion, curves?)` | 모션을 편집 가능한 JSON으로. |
+| `v2l_motion_edit(motion, operations, out, overwrite?, ranges?)` | 편집 작업을 적용하고 결과를 새 모션으로 씁니다. |
+| `v2l_generate(video, model, name, preset?, settings?, mapping?, preview?, out_dir?, install?, job?, wait_seconds?)` | 생성 작업을 시작하거나 이어 갑니다. |
 | `v2l_job_status(job, wait_seconds?)` | 작업을 기다렸다가 진행 상황이나 결과를 돌려줍니다. |
 | `v2l_jobs()` | 알려진 모든 작업. |
 | `v2l_job_cancel(job)` | 대기 중이거나 실행 중인 작업을 멈춥니다(원격 모드에서는 호스트의 프로세스도). |
@@ -400,6 +493,7 @@ JSON으로 설정하는 클라이언트:
 - 경로는 절대 경로이거나 `~`로 시작해야 하며, 이름은 `^[A-Za-z0-9_-]{1,80}$`에 맞아야 합니다.
 - 모델 폴더에 설치하는 기능은 기본적으로 꺼져 있습니다. `install` 툴셋을 켜지 않으면 `install=true`는 거부됩니다.
 - 기존 `<out>/<name>/`은 절대 덮어쓰지 않습니다. 실패하거나 취소된 작업은 자신의 출력 폴더를 지우므로, 다시 시도할 때 같은 이름을 쓸 수 있습니다.
+- `v2l_motion_edit`는 출력 폴더나 `--allow-dir` 폴더 안에만 쓰고, 모델 폴더에는 `install` 툴셋이 있을 때만 쓰며, `--read-only`에서는 숨겨집니다.
 
 **GUI 클라이언트와 `PATH`.** 데스크톱 앱은 최소한의 `PATH`로 시작하는 경우가 많아 `v2l`, `uv`, `rsync`, `ssh`를 찾지 못할 수 있습니다. 클라이언트 설정에는 절대 경로를 쓰고, `bin/v2l-mcp`에 필요한 도구가 표준 위치에 있는지 확인하세요. 터미널에서 실행하면 서버가 MCP 클라이언트를 기다리는 중이라는 안내를 출력합니다. 멈춘 것이 아닙니다.
 
@@ -415,8 +509,10 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 - **뷰어.** 프레이밍 프리셋, 드래그와 확대/축소, 물리 연산 토글, 스크럽 바. **Space**로 재생을 켜고 끕니다. 텍스처는 4K로 제한한 보기용 사본으로 표시하며, 모델 폴더는 수정하지 않습니다.
 - **생성 패널.** 영상을 고르거나 끌어다 놓거나, 웹캠 테이크를 녹화합니다. 모션 이름, 튜닝 프리셋, 스타일을 정하고, 필요하면 구간 자르기, 기본 표정 구간, 볼/혀 인식, 좌우 반전을 설정합니다. ⋯ 메뉴에서 이 값을 기본값으로 저장하거나 초기화하거나, 실행 내용을 `v2l run` 명령으로 복사할 수 있습니다.
 - **생성.** 번호가 붙은 단계 목록(upload, probe, tracking, expressions, solving, writing, preview, download)과 트래킹·표정 점수화의 프레임 진행률을 보여 주며, 원본 로그도 볼 수 있습니다. 실패는 원인별로 표시되고(사용할 수 있는 얼굴 없음, 호스트 연결 불가, 잘못된 설정, 취소), 취소할 때는 확인을 받습니다. 완료된 결과는 원본 영상과 동기화해 비교하거나, 모델 폴더에 저장하거나(덮어쓰기 전 확인), **이 설정 사용**으로 그 설정을 다시 불러오거나, **현재 설정으로 다시 실행**으로 번호를 붙인 이름으로 다시 만들 수 있습니다.
+- **모션 편집기.** **모션 편집**(모션 목록 옆이나 결과에 있음)을 누르면 뷰어 아래에 커브 편집기가 붙어 열리며, 뷰어와 원본 영상이 재생 헤드를 따라갑니다. 키를 선택·드래그·추가하고, 베지어 핸들을 편집하고, 구간을 선형·베지어·계단·역계단으로 바꾸고, 자동·평탄 접선을 적용하고, 인스펙터에서 다시 맞추기·배율·자르기·시간 조정을 할 수 있습니다. 모든 변경은 실행 취소와 다시 실행이 되며, 팝오버에 키보드와 마우스 단축키가 정리되어 있습니다. 새 모션으로 저장하거나, 확인 후 덮어쓰거나, 모델 폴더에 저장합니다.
+- **매핑 편집기.** 모델 헤더의 **매핑**이나 설정 → 생성 기본값의 **파라미터 매핑**을 누르면 세 단계가 탭(입력, 브리지 출력, 파라미터)으로 열립니다. **변경 사항 미리 보기**는 저장하지 않은 매핑으로 마지막 결과를 트래킹을 재사용해 다시 만들어 재생하고, **남기기** 또는 **버리기**로 그 결과를 둘지 정합니다. 저장한 매핑은 이후의 모든 실행에 전달됩니다.
 - **웹캠 테이크.** 3-2-1 카운트다운과 무표정 안내가 나오며, 그 구간이 기본 표정 구간이 됩니다. 테이크 길이는 2.3~60초이고 마이크는 선택해야 켜집니다. 테이크는 `<V2L_OUT>/recordings/`에 저장됩니다.
-- **언어와 테마.** 영어, 한국어, 일본어, 중국어 간체와 시스템·라이트·다크 테마를 지원합니다. 테마 색상은 Adobe Spectrum 2 토큰을 따릅니다.
+- **언어와 테마.** 영어, 한국어, 일본어, 중국어 간체와 시스템·라이트·다크 테마를 지원합니다. 중립 색상은 Adobe Spectrum 2에서 가져왔고, 강조색은 라이트 테마에서 코럴(`#FD7688`), 다크 테마에서 Spectrum 마젠타입니다.
 
 ### 설정 창
 
@@ -427,7 +523,7 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 | 일반 | 언어, 테마(시스템 / 라이트 / 다크), 기본 모델 폴더, 시작할 때 마지막 모델 열기. |
 | 연산 | **원격 서버**(호스트, 원격 디렉터리, **연결 테스트**, **연산 서버 설정**) 또는 **이 컴퓨터**(`v2l` 실행 파일 경로, **테스트**, **이 컴퓨터 설정**). |
 | 출력 | 출력 폴더, 같은 결과 이름이 있을 때의 처리, 모델 폴더 자동 저장(기본값 끔), 미리보기 영상(Studio에서는 기본값 끔). |
-| 생성 기본값 | 기본 프리셋, 스타일, 반복, 좌우 반전, 볼/혀와 간격, 프레임레이트, 페이드, 브리지 프리셋. |
+| 생성 기본값 | 기본 프리셋, 스타일, 반복, 좌우 반전, 볼/혀와 간격, 프레임레이트, 페이드, 브리지 프리셋, 커브 보간, 파라미터 매핑. |
 | 튜닝 | 스키마의 모든 설정을 [설정과 프리셋](#설정과-프리셋)과 같은 묶음으로 보여 줍니다. 고급 항목은 토글 뒤에 있고, 항목과 그룹마다 초기화할 수 있으며, 트래킹을 바꾸는 항목에는 "영상 다시 트래킹" 배지가 붙습니다. |
 | 프리셋 | CLI와 공유하는 내장 프리셋과 사용자 프리셋: 적용, 현재 튜닝 저장, 이름 변경, 삭제, 가져오기, 내보내기. |
 | 뷰어 | 물리 연산, 4K 텍스처, 프레이밍, 반복, 동기화의 기본값. |
@@ -448,9 +544,10 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 
 | 파일 | 내용 |
 |---|---|
-| `hello.motion3.json` | Cubism 모션. 단순화하고 검증한 선형 세그먼트입니다. |
+| `hello.motion3.json` | Cubism 모션. 기본은 선형 세그먼트(`output.interpolation=bezier`이면 제한된 베지어)이며, 단순화하고 검증했습니다. |
 | `hello.preview.mp4` | 원본 영상과 물리 연산을 켠 모델 렌더링을 나란히 보여 줍니다(`--no-preview`면 생략). |
-| `hello.report.json` | 얼굴·포즈 검출률, 가장 긴 트래킹 누락, 사용한 기본 표정 구간, 눈 깜빡임, 파라미터별 범위 사용률, 매핑 메모, 경고. |
+| `hello.report.json` | 얼굴·포즈 검출률, 가장 긴 트래킹 누락, 사용한 기본 표정 구간, 눈 깜빡임, 파라미터별 범위 사용률, 최종 매핑, 매핑 메모, 경고. |
+| `hello.signals.json` | 프레임별 트래킹 입력과 브리지 출력(`--dump-signals`를 줄 때만). |
 
 기본적으로 모션은 모델 폴더에도 복사됩니다. 그러면 VTube Studio가 해당 모델의 애니메이션으로 표시합니다.
 
@@ -470,6 +567,7 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 - 팔과 손은 리그가 움직이도록 되어 있을 때만, 주로 물리 연산을 통해 움직입니다. 연기자의 팔 자세를 따라 하지 않습니다.
 - 오프라인 전용입니다. 실시간 트래킹 모드는 없습니다.
 - 클립당 연기자 한 명만 지원합니다.
+- 매핑 파일로 추가한 파라미터는 렌더 프로브가 측정하지 않으므로 방향이 자동으로 보정되지 않습니다.
 
 ## 개발
 
@@ -505,7 +603,7 @@ V2L_REGRESS_MODEL=/path/to/model bin/v2l-remote regress
 
 ## 서드파티 구성 요소와 라이선스
 
-V2L 자체 코드는 MIT 라이선스입니다([LICENSE](LICENSE)). V2L Studio에 인라인으로 넣은 Lucide 아이콘 6개를 제외하면, 서드파티 파일은 패키지 관리자로 설치되거나 처음 사용할 때 내려받으며 이 저장소에 포함되어 있지 않습니다.
+V2L 자체 코드는 MIT 라이선스입니다([LICENSE](LICENSE)). V2L Studio에 인라인으로 넣은 Lucide 아이콘 21개를 제외하면, 서드파티 파일은 패키지 관리자로 설치되거나 처음 사용할 때 내려받으며 이 저장소에 포함되어 있지 않습니다.
 
 | 구성 요소 | 라이선스 |
 |---|---|
@@ -514,7 +612,7 @@ V2L 자체 코드는 MIT 라이선스입니다([LICENSE](LICENSE)). V2L Studio�
 | pixi-live2d-display 0.4.0 (`cubism4.min.js`) | MIT. Live2D Open Software License가 적용되는 Cubism Framework를 포함합니다 |
 | MediaPipe Face / Pose Landmarker 모델 | Apache-2.0 |
 | SigLIP 2 (`google/siglip2-so400m-patch14-384`) | Apache-2.0 |
-| [Lucide](https://lucide.dev) 아이콘(6개, V2L Studio에 인라인) | ISC. 그중 4개는 Feather에서 파생(MIT) |
+| [Lucide](https://lucide.dev) 아이콘(21개, V2L Studio에 인라인) | ISC. 그중 7개는 Feather에서 파생(MIT) |
 
 pixi 파일은 `src/v2l/web/assets.json`에 SHA-256으로 고정되어 있습니다. 자세한 내용은 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 참고하세요. 서드파티 브리지 프리셋은 포함하지 않습니다.
 
@@ -530,8 +628,9 @@ pixi 파일은 `src/v2l/web/assets.json`에 SHA-256으로 고정되어 있습니
 - 렌더링: [pixi-live2d-display](https://github.com/guansss/pixi-live2d-display)와 [PixiJS](https://github.com/pixijs/pixijs).
 - 모델 형식과 런타임: [Live2D Cubism](https://www.live2d.com/).
 - V2L Studio의 아이콘: [Lucide](https://lucide.dev). 테마의 디자인 토큰: [Adobe Spectrum 2](https://spectrum.adobe.com/).
-- 브리지 인터프리터가 구현하는 [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) 수식 언어.
-- V2L이 기준으로 삼은 워크플로를 제공한 [VBridger](https://store.steampowered.com/app/1898830/VBridger/).
+- 브리지 인터프리터가 구현하는 [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) 수식 언어와 지연 버퍼. 매핑 편집기의 참고 자료입니다.
+- V2L이 기준으로 삼은 워크플로를 제공한 [VBridger](https://store.steampowered.com/app/1898830/VBridger/). 매핑 편집기는 그 입력 커브와 수정자를 따릅니다.
+- 매핑 파일 설계에 참고한 변환 설정을 제공한 [SandoitchiBridge](https://github.com/an1by/SandoitchiBridge).
 
 ## 라이선스
 

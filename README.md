@@ -25,8 +25,10 @@ video2live2d (V2L) reads a video of a real person with the face and shoulders in
 - **Rig-independent direction check.** A headless render probe measures what each parameter does on screen and fixes reversed directions and swapped eye sides. The result is cached per model.
 - **SnenkBridge-format bridges.** The built-in VBridger-style bridge is evaluated by a safe interpreter of the SnenkBridge formula language, and `--bridge FILE` loads other presets in that format.
 - **Two styles.** `cute` (default) adds a slightly happier, livelier performance; `faithful` adds nothing.
-- **Everything is tunable.** 66 settings in 10 sections (input, calibration, intensity, smoothing, style and more) come from one schema shared by the CLI, V2L Studio and the MCP server. Built-in and user presets bundle them.
+- **Everything is tunable.** 67 settings in 10 sections (input, calibration, intensity, smoothing, style and more) come from one schema shared by the CLI, V2L Studio and the MCP server. Built-in and user presets bundle them.
 - **Agent-ready.** One JSON result object with `--json`, JSON-lines progress with `--progress json`, documented exit codes, and an MCP server for AI agents.
+- **Motion editing.** Keyframes with Linear, Bezier, Stepped or Inverse stepped per segment, Bezier handles, refit and undo, in V2L Studio's curve editor or through `v2l motion` operations.
+- **Mapping editing in three layers.** Modeled on VBridger, SnenkBridge and VTube Studio's parameter settings: input curves; bridge outputs with formulas, SnenkBridge-style delay buffers and VBridger-style modifiers (delay, smoothing, steps); and per-parameter mapping with ranges, invert, clamp, response curve and smoothing cutoff.
 - **Optional cheek puff and tongue out.** A zero-shot SigLIP 2 stage scores expressions that MediaPipe does not report well.
 - **Preview and report.** A side-by-side preview video and a `report.json` with detection rates, blinks, range use and warnings.
 - **Laptop + compute host workflow.** `bin/v2l-remote` (standard library only) runs the pipeline on another machine over SSH, and V2L Studio wraps it in a desktop app with a Live2D viewer and webcam recording.
@@ -70,12 +72,13 @@ flowchart LR
 | Calibration | `src/v2l/calibrate.py` | Finds the rest face (least-active window) and per-channel response from the whole clip. |
 | Intensity | `src/v2l/calibrate.py` | Scales each movement group (head, body, gaze, brows, smile, mouth, cheek/tongue) by the `intensity.*` settings. |
 | Gaps | `src/v2l/temporal.py` | Resamples to the output frame rate; gaps up to 0.4 s (`gaps.max_gap`) are interpolated, longer gaps ease to rest. |
-| Bridge | `src/v2l/bridge.py`, `src/v2l/bridges/default.json` | VBridger-style outputs evaluated by a safe AST interpreter of the SnenkBridge formula language. |
-| Mapping | `src/v2l/mapping.py`, `src/v2l/model.py` | Reuses the model's VTube Studio parameter settings; falls back to standard Cubism ids. |
+| Bridge | `src/v2l/bridge.py`, `src/v2l/bridges/default.json` | VBridger-style outputs evaluated by a safe AST interpreter of the SnenkBridge formula language. A mapping file can patch or add outputs, with delay buffers and modifiers. |
+| Mapping | `src/v2l/mapping.py`, `src/v2l/model.py` | Reuses the model's VTube Studio parameter settings; falls back to standard Cubism ids. A mapping file (`--mapping`) can change any entry or add new ones. |
 | Probe | `src/v2l/render.py`, `src/v2l/web/` | Renders the model headless and fixes reversed directions and swapped eye sides. |
 | Style | `src/v2l/style.py` | `cute` or `faithful`. |
-| Export | `src/v2l/motion3.py`, `src/v2l/pipeline.py` | Zero-phase Butterworth filtering per parameter group, linear segments simplified with Ramer-Douglas-Peucker within 0.4 % of each parameter's range, validation, preview and report. |
+| Export | `src/v2l/motion3.py`, `src/v2l/pipeline.py` | Zero-phase Butterworth filtering per parameter group, linear segments (or restricted Beziers with `output.interpolation=bezier`) simplified with Ramer-Douglas-Peucker within 0.4 % of each parameter's range, validation, preview and report. |
 | Settings | `src/v2l/config.py`, `src/v2l/presets/` | The settings schema, validation and presets used by every stage. |
+| Editing | `src/v2l/motionedit.py`, `src/v2l/inputs.py` | Editable motion format, edit operations, fitting and validation; the inputs a mapping may use. |
 
 Physics output parameters are left to the runtime. Rendering for the probe and the preview uses Playwright driving an installed Google Chrome with SwiftShader (CPU rendering), because GPU WebGL backends lost the context with very large (8K) textures.
 
@@ -146,7 +149,8 @@ Environment variables such as `V2L_HOST` and `V2L_MODEL` still work and lock the
 
 ```text
 v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config FILE]...
-        [--set SECTION.NAME=VALUE]... [shortcut flags] [--no-install] [--dry-run] [--json] [--progress text|json]
+        [--set SECTION.NAME=VALUE]... [shortcut flags] [--mapping FILE] [--dump-signals]
+        [--no-install] [--dry-run] [--json] [--progress text|json]
 ```
 
 Settings are applied in this order, later ones winning:
@@ -164,6 +168,8 @@ Settings are applied in this order, later ones winning:
 | `--preset NAME\|FILE` | none | A built-in or user preset, or a preset file (see [Settings & presets](#settings--presets)). |
 | `--config FILE` | none | A JSON configuration file. Repeatable; later files win. |
 | `--set SECTION.NAME=VALUE` | none | One setting, e.g. `intensity.smile=1.5` or `calibration.neutral_window=2:3`. Repeatable; applied last. |
+| `--mapping FILE` | none | A mapping file (see [Editing motions and mappings](#editing-motions-and-mappings)). |
+| `--dump-signals` | off | Also write `NAME.signals.json`: tracking inputs and bridge outputs per frame. |
 | `--no-install` | off | Do not copy the motion into the model folder. |
 | `--dry-run` | off | Check the inputs and settings and print the planned output files and the effective settings. No tracking. |
 | `--json` | off | Print exactly one JSON result object on stdout; everything else goes to stderr. |
@@ -183,12 +189,14 @@ Settings are applied in this order, later ones winning:
 | `--flip` | `input.flip=true` | The input was recorded mirrored (selfie camera). |
 | `--start S`, `--end S` | `input.start`, `input.end` | Use only part of the clip (seconds). |
 | `--neutral A:B` | `calibration.neutral_window` | Rest-face window in seconds, relative to `--start`. Default: found automatically. |
-| `--bridge NAME\|FILE` | `bridge.preset` | Built-in bridge preset name (default `default`) or a SnenkBridge-format JSON file. |
+| `--bridge NAME\|FILE` | `bridge.preset` | Built-in bridge preset name (default `default`) or a SnenkBridge-format JSON file: a plain parameter list or a `snek` preset, including `delayBuffer` outputs. |
 | `--no-preview` | `preview.enabled=false` | Skip the preview video. |
 | `--no-rare` | `expressions.enabled=false` | Skip the cheek-puff / tongue-out stage. |
 | `--rare-stride N` | `expressions.stride` | Score cheek puff / tongue out on every N-th frame (default 3). |
 
 </details>
+
+**Curve interpolation.** `output.interpolation` is `linear` by default. `--set output.interpolation=bezier` writes restricted Bezier segments: about half the keys and smoother to edit, but each Bezier segment counts three points, so the file is larger.
 
 **JSON result** (`--json`):
 
@@ -214,7 +222,7 @@ With `--dry-run` the result has `"dry_run": true` and `"settings"` instead of `"
 |---|---|
 | `0` | success |
 | `1` | `runtime`, `remote` |
-| `2` | `usage`, `config`, `input` |
+| `2` | `usage`, `config`, `input`, `invalid` (a motion, edit operation, mapping or formula that does not validate) |
 | `3` | `unusable_input`: the video does not open, or no face is tracked |
 | `4` | `remote_unreachable`: the compute host cannot be reached |
 | `130` | `interrupted`, `cancelled` |
@@ -232,9 +240,12 @@ With `--dry-run` the result has `"dry_run": true` and `"settings"` instead of `"
 | `v2l config presets` | Built-in and user presets as JSON. |
 | `v2l config validate FILE...` | Check configuration files and print the merged result. |
 | `v2l version [--json]` | The V2L version. |
+| `v2l motion info\|read\|write\|edit\|refit\|eval\|validate ...` | Inspect, convert, edit, refit, sample and validate motion files. |
+| `v2l mapping show\|inputs\|validate ...` | A model's effective mapping with the source of each value, the inputs a mapping can use, and mapping-file validation. |
+| `v2l bridge show\|check\|validate ...` | The effective bridge outputs, a check of one formula, and validation of a SnenkBridge preset or a mapping's bridge section. |
 | `v2l mcp [...]` | The MCP server (see [Agents](#agents-mcp--cli)). |
 
-`v2l config`, `v2l presets` and `v2l version` need only the standard library.
+`v2l config`, `v2l presets`, `v2l version`, `v2l motion`, `v2l bridge` and `v2l mapping inputs|validate` (without `--model`) need only the standard library. Formats and every option: [docs/motion-editing.md](docs/motion-editing.md).
 
 ### `bin/v2l-remote`
 
@@ -243,6 +254,8 @@ With `--dry-run` the result has `"dry_run": true` and `"settings"` instead of `"
 | `setup` | Push code to `V2L_HOST`, create `.venv`, `pip install -e '.[test]'`, pre-download tracker models, Cubism Core and the renderer libraries. |
 | `run VIDEO --model DIR --name NAME [--out DIR] [--no-install] [--json] [--progress text\|json] [v2l run options...]` | Run `v2l run` on the host and copy the results to `OUT/NAME/` (`--out` defaults to `V2L_OUT`, else `~/Downloads/v2l_out`). |
 | `probe --model DIR [--details] [--json]` | Probe a local model on the host. |
+| `mapping show --model DIR [--mapping FILE] [--json]` | Compute a local model's effective mapping on the host. |
+| `mapping inputs\|validate ...`, `bridge ...` | Run on the laptop; `V2L_HOST` is not needed. |
 | `check [--json]` | Is the host reachable, and is V2L installed there? |
 | `version [--json]` | Version of the local V2L code. |
 | `test` | Run the unit tests on the host. |
@@ -252,6 +265,7 @@ How `v2l-remote run` handles settings and jobs:
 
 - `--preset`, `--config` files, shortcut flags and `--set` are resolved **on the laptop**, so your user presets and local files are used. One file with the effective settings is uploaded per run (plus a local bridge file, if any) and removed afterwards. Invalid settings fail before anything is uploaded.
 - `--dry-run` runs on the laptop without connecting.
+- `--mapping FILE` is uploaded like the settings file and removed after the run; with `--dump-signals` the signals file comes back with the results.
 - Stopping `v2l-remote` (Ctrl-C, SIGTERM or SIGHUP) also stops the job on the host and removes that run's files there; it exits with 130.
 
 ### Environment variables
@@ -268,12 +282,12 @@ How `v2l-remote run` handles settings and jobs:
 
 ## Settings & presets
 
-Every tunable value lives in one schema, `src/v2l/config.py`: 66 settings in 10 sections. The CLI, V2L Studio and the MCP server read the same schema, so a setting has the same name, range and meaning everywhere. Unknown keys, wrong types and out-of-range values are errors.
+Every tunable value lives in one schema, `src/v2l/config.py`: 67 settings in 10 sections. The CLI, V2L Studio and the MCP server read the same schema, so a setting has the same name, range and meaning everywhere. Unknown keys, wrong types and out-of-range values are errors.
 
 | Section | What it controls | Example keys |
 |---|---|---|
 | `input` | Which part of the video is used and how it is read. | `start`, `end`, `flip` |
-| `output` | Frame rate, fades, looping and file size of the motion. | `fps`, `loop`, `breath_period` |
+| `output` | Frame rate, fades, looping and file size of the motion. | `fps`, `loop`, `interpolation` |
 | `calibration` | How the rest face and the full range of each expression are estimated. | `neutral_window`, `jaw_full`, `gaze_full` |
 | `intensity` | Overall strength of each group of movements. | `head`, `smile`, `mouth_open` |
 | `gaps` | What happens when the face is lost for a moment. | `max_gap`, `ramp` |
@@ -289,7 +303,7 @@ Every tunable value lives in one schema, `src/v2l/config.py`: 66 settings in 10 
 | Section | Settings |
 |---|---|
 | `input` | `start`, `end`, `flip`, `analysis_width` |
-| `output` | `fps`, `fade`, `loop`, `loop_blend`, `breath_period`, `tolerance` |
+| `output` | `fps`, `fade`, `loop`, `loop_blend`, `breath_period`, `interpolation`, `tolerance` |
 | `calibration` | `neutral_window`, `neutral_seconds`, `rest_head_range`, `full_percentile`, `min_span`, `max_gain`, `blink_deadzone`, `blink_landmark_weight`, `eye_closed_ratio`, `eye_wide_range`, `jaw_full`, `lip_gap_full`, `mouth_narrow_full`, `mouth_wide_full`, `mouth_shift_full`, `gaze_full` |
 | `intensity` | `head`, `body`, `gaze`, `brows`, `smile`, `mouth_open`, `mouth_shape`, `cheek_tongue` |
 | `gaps` | `max_gap`, `ramp` |
@@ -336,6 +350,80 @@ v2l presets save talk_show talk_show.json
 v2l run clip.mp4 --model ~/Models/MyModel --name hello --preset talk_show --set intensity.smile=1.5
 ```
 
+## Editing motions and mappings
+
+Motions and mappings stay editable after generation, from the CLI, the MCP server and V2L Studio. [docs/motion-editing.md](docs/motion-editing.md) is the full specification: file formats, every operation, the formula syntax and all command options.
+
+### Motions
+
+Motions are ordinary `.motion3.json` files. Each segment between two keys is Linear, Bezier, Stepped or Inverse stepped. V2L writes **restricted Beziers** (`AreBeziersRestricted`): the two control points sit at one third and two thirds of the segment's time span, so the value is a cubic polynomial in time and every Cubism runtime evaluates it the same way. Editors change only the control values. Beziers from other tools are read exactly and converted only when that segment is edited.
+
+`v2l motion read` gives an editable JSON (keys, the type of each segment, handles). `v2l motion edit` applies a list of operations in order: insert, move and delete keys, set interpolation and handles, automatic or flat tangents, refit, scale, offset, clamp, retime, trim and timing. An invalid operation is reported with its index and nothing is written; an existing output file is replaced only with `--overwrite`.
+
+```json
+[
+  {"op": "insert_key", "curve": "ParamAngleX", "t": 1.0, "value": 12},
+  {"op": "set_interpolation", "curves": ["ParamAngleX"], "type": "bezier", "from": 0.5, "to": 2.0},
+  {"op": "refit", "curves": "*", "tolerance": 0.004, "interpolation": "bezier"},
+  {"op": "trim", "from": 1.0, "to": 13.0}
+]
+```
+
+```bash
+v2l motion read hello.motion3.json --json                # editable JSON: keys, segment types, handles
+v2l motion edit hello.motion3.json --ops ops.json --out hello_edit.motion3.json --json
+v2l motion refit hello.motion3.json --interpolation bezier --tolerance 0.004 --out hello_bezier.motion3.json
+```
+
+### Mappings
+
+A mapping file (`--mapping FILE`) changes, per model, how tracking reaches the Live2D parameters. It has three layers, applied in this order after tracking:
+
+| Layer | Modeled on | What it changes |
+|---|---|---|
+| `input_curves` | VBridger's input curves | Reshape a tracking input, e.g. let an eye that never opens fully reach 1. |
+| `bridge` | SnenkBridge presets, VBridger modifiers | Patch, add or disable bridge outputs: formulas, SnenkBridge-style `delayBuffer`, and the modifiers `delayMs`, `smoothing` and `steps`. |
+| `entries` | VTube Studio parameter settings | Per Live2D parameter: input, input and output ranges, invert, clamps, response curve, smoothing cutoff, breathing, on or off. |
+
+```json
+{
+  "format": "v2l.mapping",
+  "version": 1,
+  "input_curves": {"EyeWideLeft": {"points": [[0, 0], [0.6, 1], [1, 1]], "smooth": true}},
+  "bridge": [
+    {"name": "MouthOpen", "modifiers": {"smoothing": 0.2}},
+    {"name": "EarSwing", "func": "", "min": -1, "max": 1, "defaultValue": 0,
+     "delayBuffer": {"refParam": "FaceAngleX", "smoothing": 3, "delayCount": 8,
+                     "inMin": -20, "inMax": 20, "outMin": -1, "outMax": 1}}
+  ],
+  "entries": [
+    {"output": "ParamAngleX", "in": [-25, 25], "out": [-30, 30], "cutoff": 2.0},
+    {"output": "ParamEarL", "input": "EarSwing"},
+    {"output": "ParamBodyAngleZ", "enabled": false}
+  ]
+}
+```
+
+```bash
+v2l mapping inputs --json                               # input names, meaning, nominal range
+v2l mapping show --model ~/Models/MyModel --mapping MyModel.json
+v2l bridge check --func "0.5 + 0.5 * (MouthSmileLeft + MouthSmileRight)"
+v2l run clip.mp4 --model ~/Models/MyModel --name hello --mapping MyModel.json --dump-signals
+```
+
+Only what you change is stored; everything else comes from the model's `*.vtube.json` or the standard mapping, with the render probe's direction fixes. Formulas use SnenkBridge's syntax, with the differences listed in the specification. The layers apply after tracking, so a changed mapping reuses the tracking cache. `--dump-signals` writes `NAME.signals.json` with the inputs and bridge outputs per frame, so you can plot what the mapping sees.
+
+### In V2L Studio
+
+The motion editor and the mapping editor (see [V2L Studio](#v2l-studio)) work on the same formats and call the same operations.
+
+<p align="center"><img src="docs/assets/motion-editor-light.png" alt="V2L Studio motion editor in the light theme: parameter list, curve graph with keyframes and Bezier handles, and the inspector" width="80%"></p>
+
+<p align="center">
+<img src="docs/assets/mapping-bridge-light.png" alt="V2L Studio mapping editor in the light theme: the Bridge outputs tab with a formula and its modifiers" width="49%">
+<img src="docs/assets/mapping-inputs-dark.png" alt="V2L Studio mapping editor in the dark theme: the Inputs tab with an input curve" width="49%">
+</p>
+
 ## Agents (MCP & CLI)
 
 V2L can be driven by AI agents in two ways: the CLI with `--json` and `--progress json`, or an [MCP](https://modelcontextprotocol.io/) server over stdio. For coding agents that already run shell commands, the CLI is the lighter option. The MCP server suits chat and desktop clients.
@@ -378,7 +466,12 @@ Clients configured with JSON:
 | `v2l_validate_settings(settings?, preset?)` | Dry run of the settings only: apply a preset and partial settings and check them. |
 | `v2l_probe_model(model, details?)` | Probe a model's parameters and screen directions. |
 | `v2l_list_motions(model)` | The `*.motion3.json` files in a model folder. |
-| `v2l_generate(video, model, name, preset?, settings?, preview?, out_dir?, install?, job?, wait_seconds?)` | Start or resume a generation job. |
+| `v2l_mapping_get(model, mapping?)` | A model's effective mapping (all three layers) and the available inputs. |
+| `v2l_bridge_check(func, mapping?)` | Check one bridge formula: names read, unknown names, error position. |
+| `v2l_motion_info(motion)` | Curves, segment types, counts and problems of a motion. |
+| `v2l_motion_read(motion, curves?)` | A motion as editable JSON. |
+| `v2l_motion_edit(motion, operations, out, overwrite?, ranges?)` | Apply edit operations and write the result as a new motion. |
+| `v2l_generate(video, model, name, preset?, settings?, mapping?, preview?, out_dir?, install?, job?, wait_seconds?)` | Start or resume a generation job. |
 | `v2l_job_status(job, wait_seconds?)` | Wait for a job and return its progress or result. |
 | `v2l_jobs()` | All known jobs. |
 | `v2l_job_cancel(job)` | Stop a queued or running job (in remote mode, the process on the host too). |
@@ -400,6 +493,7 @@ Clients configured with JSON:
 - Paths must be absolute or start with `~`; names match `^[A-Za-z0-9_-]{1,80}$`.
 - Installing into a model folder is off by default: `install=true` is refused unless the `install` toolset is enabled.
 - An existing `<out>/<name>/` is never overwritten. A failed or cancelled job removes its own output folder, so a retry can reuse the name.
+- `v2l_motion_edit` writes only inside the output folder or `--allow-dir` folders, into a model folder only with the `install` toolset, and is hidden with `--read-only`.
 
 **GUI clients and `PATH`.** Desktop apps often start with a minimal `PATH`, so `v2l`, `uv`, `rsync` or `ssh` may not be found. Use absolute paths in the client configuration, and make sure the tools `bin/v2l-mcp` needs are in standard locations. Started from a terminal, the server prints a note that it is waiting for an MCP client; that is not a hang.
 
@@ -415,8 +509,10 @@ V2L Studio (`bin/v2l-studio`) is an Electron desktop app with a Live2D viewer on
 - **Viewer.** Framing presets, drag and zoom, a physics toggle and a scrub bar. **Space** toggles playback. Textures are shown through a viewing copy capped at 4K; the model folder is not modified.
 - **Creation panel.** Pick or drop a video, or record a webcam take. Set the motion name, the tuning preset and the style, and optionally trim, the neutral window, cheek/tongue recognition and mirroring. The ⋯ menu saves these as defaults, resets them, or copies the run as a `v2l run` command.
 - **Generation.** A numbered stage list (upload, probe, tracking, expressions, solving, writing, preview, download) with frame progress for tracking and expression scoring; the raw log stays available. Failures are named (no usable face, host unreachable, invalid settings, cancelled), and cancelling asks for confirmation. A finished result can be compared with the source video in sync, saved into the model folder (asking before overwriting), loaded back with **Use these settings**, or regenerated with **Run again with current settings** under a numbered name.
+- **Motion editor.** **Edit motion** (next to the motion list, or on a result) opens a curve editor docked under the viewer; the viewer and the source video follow the playhead. Select, drag and insert keys, edit Bezier handles, switch segments between Linear, Bezier, Stepped and Inverse stepped, apply Auto or Flatten, and refit, scale, trim or retime in the inspector. Undo and redo cover every change, and a popover lists the keyboard and mouse shortcuts. Save as a new motion, overwrite (after a confirmation), or save into the model folder.
+- **Mapping editor.** **Mapping** on the model header, or **Parameter mapping** in Settings → Generation defaults, opens the three layers as tabs: Inputs, Bridge outputs and Parameters. **Preview changes** regenerates the last result with the unsaved mapping, reusing its tracking, and plays it; **Keep** or **Discard** decides whether that result stays. Saved mappings are passed to every later run.
 - **Webcam takes.** A 3-2-1 countdown and a neutral-face cue that becomes the rest window. Takes last 2.3 to 60 seconds; the microphone is opt-in. Takes are saved under `<V2L_OUT>/recordings/`.
-- **Languages and themes.** English, Korean, Japanese and Simplified Chinese; System, Light or Dark theme. Theme colors follow Adobe Spectrum 2 tokens.
+- **Languages and themes.** English, Korean, Japanese and Simplified Chinese; System, Light or Dark theme. Neutral colors come from Adobe Spectrum 2; the accent is coral (`#FD7688`) in the light theme and Spectrum magenta in the dark theme.
 
 ### Settings window
 
@@ -427,7 +523,7 @@ Open it with the gear button, the app menu, or ⌘, (Ctrl+, on Linux). The searc
 | General | Language, theme (System / Light / Dark), default model folder, open the last model on start. |
 | Compute | **Remote host** (host, remote directory, **Test connection**, **Set up host**) or **This computer** (path of the `v2l` executable, **Test**, **Set up this computer**). |
 | Output | Output folder, what to do when a result name exists, automatic save to the model folder (off by default), preview video (off by default in Studio). |
-| Generation defaults | Default preset, style, loop, mirroring, cheek/tongue and stride, frame rate, fade, bridge preset. |
+| Generation defaults | Default preset, style, loop, mirroring, cheek/tongue and stride, frame rate, fade, bridge preset, curve interpolation, parameter mapping. |
 | Tuning | Every setting of the schema, grouped as in [Settings & presets](#settings--presets). Advanced fields sit behind a toggle, each field and group can be reset, and fields that change tracking carry a "re-tracks the video" badge. |
 | Presets | Built-in and user presets, shared with the CLI: apply, save the current tuning, rename, delete, import, export. |
 | Viewer | Defaults for physics, 4K textures, framing, loop and sync. |
@@ -448,9 +544,10 @@ For `--name hello`, `v2l run` writes these files directly into its `--out` folde
 
 | File | Content |
 |---|---|
-| `hello.motion3.json` | The Cubism motion: linear segments, simplified and validated. |
+| `hello.motion3.json` | The Cubism motion: linear segments by default (restricted Beziers with `output.interpolation=bezier`), simplified and validated. |
 | `hello.preview.mp4` | Source video next to the rendered model with physics on (skipped with `--no-preview`). |
-| `hello.report.json` | Face and pose detection rates, the longest tracking gap, the rest window used, blinks, per-parameter range use, mapping notes and warnings. |
+| `hello.report.json` | Face and pose detection rates, the longest tracking gap, the rest window used, blinks, per-parameter range use, the effective mapping, mapping notes and warnings. |
+| `hello.signals.json` | Tracking inputs and bridge outputs per frame (only with `--dump-signals`). |
 
 By default the motion is also copied into the model folder. VTube Studio then lists it as an animation for that model.
 
@@ -470,6 +567,7 @@ By default the motion is also copied into the model folder. VTube Studio then li
 - Arms and hands move only if the rig drives them, usually through physics. They do not copy the performer's arm pose.
 - Offline only: there is no live tracking mode.
 - One performer per clip.
+- Parameters that a mapping file adds are not measured by the render probe, so their direction is not corrected automatically.
 
 ## Development
 
@@ -505,7 +603,7 @@ Tested on Ubuntu 24.04 x86_64 with Python 3.12 as the compute host (the cheek/to
 
 ## Third-party components & licenses
 
-V2L's own code is MIT-licensed ([LICENSE](LICENSE)). Apart from six Lucide icons inlined in V2L Studio, third-party files are installed by package managers or downloaded on first use and are not included in this repository:
+V2L's own code is MIT-licensed ([LICENSE](LICENSE)). Apart from 21 Lucide icons inlined in V2L Studio, third-party files are installed by package managers or downloaded on first use and are not included in this repository:
 
 | Component | License |
 |---|---|
@@ -514,7 +612,7 @@ V2L's own code is MIT-licensed ([LICENSE](LICENSE)). Apart from six Lucide icons
 | pixi-live2d-display 0.4.0 (`cubism4.min.js`) | MIT; bundles the Cubism Framework under the Live2D Open Software License |
 | MediaPipe Face / Pose Landmarker models | Apache-2.0 |
 | SigLIP 2 (`google/siglip2-so400m-patch14-384`) | Apache-2.0 |
-| [Lucide](https://lucide.dev) icons (6, inlined in V2L Studio) | ISC; four are derived from Feather (MIT) |
+| [Lucide](https://lucide.dev) icons (21, inlined in V2L Studio) | ISC; seven are derived from Feather (MIT) |
 
 The pixi files are pinned by SHA-256 in `src/v2l/web/assets.json`. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details. No third-party bridge presets are included.
 
@@ -530,8 +628,9 @@ The pixi files are pinned by SHA-256 in `src/v2l/web/assets.json`. See [THIRD_PA
 - [pixi-live2d-display](https://github.com/guansss/pixi-live2d-display) and [PixiJS](https://github.com/pixijs/pixijs) for rendering.
 - [Live2D Cubism](https://www.live2d.com/) for the model format and runtime.
 - [Lucide](https://lucide.dev) for V2L Studio's icons, and [Adobe Spectrum 2](https://spectrum.adobe.com/) for the design tokens behind its themes.
-- The [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) formula language, which the bridge interpreter implements.
-- [VBridger](https://store.steampowered.com/app/1898830/VBridger/), whose workflow V2L uses as its reference.
+- The [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) formula language, which the bridge interpreter implements, and its delay buffers; a reference for the mapping editor.
+- [VBridger](https://store.steampowered.com/app/1898830/VBridger/), whose workflow V2L uses as its reference, and whose input curves and modifiers the mapping editor follows.
+- [SandoitchiBridge](https://github.com/an1by/SandoitchiBridge), whose transformation configs informed the mapping file.
 
 ## License
 

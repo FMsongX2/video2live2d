@@ -93,10 +93,14 @@ class OutputConfig:
     breath_period: float = param(3.4, label="Breathing period", unit="s", min=1.5, max=8.0, step=0.1,
                                  help="Length of one breathing cycle. With a seamless loop it is adjusted "
                                       "to fit whole cycles.")
+    interpolation: str = param("linear", label="Curve interpolation", choices=("linear", "bezier"),
+                               help="How motion curves are written. linear: straight segments between kept points. "
+                                    "bezier: smooth restricted Bezier segments fitted to the motion (about half the "
+                                    "keys and easier to edit, but a larger file).")
     tolerance: float = param(0.004, label="Curve simplification", unit="of range", min=0.0005, max=0.05,
                              step=0.0005, advanced=True,
-                             help="Largest deviation allowed when simplifying curves, as a fraction of each "
-                                  "parameter's range. Larger gives smaller files and less detail.")
+                             help="Largest deviation allowed when simplifying or fitting curves, as a fraction of "
+                                  "each parameter's range. Larger gives smaller files and fewer keys.")
 
 
 @dataclasses.dataclass

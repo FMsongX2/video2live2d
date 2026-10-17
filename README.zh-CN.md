@@ -25,8 +25,10 @@ video2live2d（V2L）读取一段拍到真人面部和双肩的视频，为兼�
 - **与绑定无关的方向检查。** 无头渲染探测会测量每个参数在屏幕上的实际效果，修正方向相反和左右眼对调的问题。结果按模型缓存。
 - **SnenkBridge 格式的 bridge。** 内置的 VBridger 风格 bridge 由 SnenkBridge 公式语言的安全解释器求值，`--bridge FILE` 可加载同一格式的其他预设。
 - **两种风格。** `cute`（默认）加入稍显开朗、生动的表演；`faithful` 不做任何添加。
-- **一切皆可调。** 输入、校准、强度、平滑、风格等 10 个分区共 66 项设置，来自 CLI、V2L Studio 和 MCP 服务器共用的同一模式；可通过内置预设和用户预设组合使用。
+- **一切皆可调。** 输入、校准、强度、平滑、风格等 10 个分区共 67 项设置，来自 CLI、V2L Studio 和 MCP 服务器共用的同一模式；可通过内置预设和用户预设组合使用。
 - **面向智能体。** `--json` 输出单个 JSON 结果对象，`--progress json` 输出 JSON Lines 进度事件，退出码有文档说明，并提供面向 AI 智能体的 MCP 服务器。
+- **动作编辑。** 每个区段可选线性、贝塞尔、阶梯或反向阶梯的关键帧、贝塞尔控制柄、重新拟合和撤销，可在 V2L Studio 的曲线编辑器中或通过 `v2l motion` 操作完成。
+- **三层映射编辑。** 参照 VBridger、SnenkBridge 和 VTube Studio 的参数设置：输入曲线；带公式、SnenkBridge 风格延迟缓冲和 VBridger 风格修饰器（延迟、平滑、阶梯）的 bridge 输出；以及按参数设置范围、反转、限幅、响应曲线和平滑截止频率的映射。
 - **可选：鼓腮和吐舌。** 零样本 SigLIP 2 阶段为 MediaPipe 难以识别的表情打分。
 - **预览与报告。** 原视频与模型并排的预览视频，以及包含检测率、眨眼、范围使用率和警告的 `report.json`。
 - **笔记本 + 计算主机工作流。** 仅依赖标准库的 `bin/v2l-remote` 通过 SSH 在另一台机器上运行流水线；V2L Studio 将其封装为带有 Live2D 查看器和摄像头录制功能的桌面应用。
@@ -70,12 +72,13 @@ flowchart LR
 | 校准 | `src/v2l/calibrate.py` | 从整段视频中找出静止表情（活动最少的片段）以及各通道的响应幅度。 |
 | 强度 | `src/v2l/calibrate.py` | 按 `intensity.*` 设置缩放各组动作（头部、身体、视线、眉毛、微笑、嘴部、鼓腮/吐舌）。 |
 | 缺失片段 | `src/v2l/temporal.py` | 重采样到输出帧率；0.4 秒（`gaps.max_gap`）以内的缺失会插值，更长的缺失平滑回到静止姿态。 |
-| Bridge | `src/v2l/bridge.py`, `src/v2l/bridges/default.json` | 用 SnenkBridge 公式语言的安全 AST 解释器计算 VBridger 风格的输出。 |
-| 映射 | `src/v2l/mapping.py`, `src/v2l/model.py` | 复用模型的 VTube Studio 参数设置；没有时回退到标准 Cubism ID。 |
+| Bridge | `src/v2l/bridge.py`, `src/v2l/bridges/default.json` | 用 SnenkBridge 公式语言的安全 AST 解释器计算 VBridger 风格的输出。映射文件可以修改或新增输出，并支持延迟缓冲和修饰器。 |
+| 映射 | `src/v2l/mapping.py`, `src/v2l/model.py` | 复用模型的 VTube Studio 参数设置；没有时回退到标准 Cubism ID。映射文件（`--mapping`）可以修改任意条目或新增条目。 |
 | 探测 | `src/v2l/render.py`, `src/v2l/web/` | 无头渲染模型，修正方向相反和左右眼对调。 |
 | 风格 | `src/v2l/style.py` | `cute` 或 `faithful`。 |
-| 导出 | `src/v2l/motion3.py`, `src/v2l/pipeline.py` | 按参数组进行零相位 Butterworth 滤波，用 Ramer-Douglas-Peucker 在各参数范围 0.4 % 以内简化的线性分段，校验，生成预览和报告。 |
+| 导出 | `src/v2l/motion3.py`, `src/v2l/pipeline.py` | 按参数组进行零相位 Butterworth 滤波，用 Ramer-Douglas-Peucker 在各参数范围 0.4 % 以内简化的线性分段（`output.interpolation=bezier` 时为受限贝塞尔），校验，生成预览和报告。 |
 | 设置 | `src/v2l/config.py`, `src/v2l/presets/` | 各阶段共用的设置模式、校验和预设。 |
+| 编辑 | `src/v2l/motionedit.py`, `src/v2l/inputs.py` | 可编辑动作格式、编辑操作、拟合和校验，以及映射可使用的输入列表。 |
 
 物理输出参数交由运行时处理。探测和预览的渲染由 Playwright 驱动已安装的 Google Chrome，并使用 SwiftShader（CPU 渲染），因为 GPU WebGL 后端在超大（8K）纹理下会丢失上下文。
 
@@ -146,7 +149,8 @@ V2L_MODEL=~/Models/MyModel V2L_HOST=user@gpu-box bin/v2l-studio
 
 ```text
 v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config FILE]...
-        [--set SECTION.NAME=VALUE]... [shortcut flags] [--no-install] [--dry-run] [--json] [--progress text|json]
+        [--set SECTION.NAME=VALUE]... [shortcut flags] [--mapping FILE] [--dump-signals]
+        [--no-install] [--dry-run] [--json] [--progress text|json]
 ```
 
 设置按以下顺序应用，后者优先：
@@ -164,6 +168,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `--preset NAME\|FILE` | 无 | 内置预设、用户预设或预设文件（见[设置与预设](#设置与预设)）。 |
 | `--config FILE` | 无 | JSON 配置文件。可重复指定，后面的文件优先。 |
 | `--set SECTION.NAME=VALUE` | 无 | 单个设置，例如 `intensity.smile=1.5` 或 `calibration.neutral_window=2:3`。可重复指定，最后应用。 |
+| `--mapping FILE` | 无 | 映射文件（见[编辑动作与映射](#编辑动作与映射)）。 |
+| `--dump-signals` | 关 | 同时写出 `NAME.signals.json`：逐帧的追踪输入和 bridge 输出。 |
 | `--no-install` | 关 | 不把动作复制到模型文件夹。 |
 | `--dry-run` | 关 | 检查输入和设置，输出计划生成的文件和最终设置。不进行追踪。 |
 | `--json` | 关 | stdout 只输出一个 JSON 结果对象，其余内容全部输出到 stderr。 |
@@ -183,12 +189,14 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `--flip` | `input.flip=true` | 输入是镜像录制的（自拍摄像头）。 |
 | `--start S`, `--end S` | `input.start`, `input.end` | 只使用视频的一部分（秒）。 |
 | `--neutral A:B` | `calibration.neutral_window` | 静止表情片段（秒），相对于 `--start`。默认自动查找。 |
-| `--bridge NAME\|FILE` | `bridge.preset` | 内置 bridge 预设名称（默认 `default`），或 SnenkBridge 格式的 JSON 文件。 |
+| `--bridge NAME\|FILE` | `bridge.preset` | 内置 bridge 预设名称（默认 `default`），或 SnenkBridge 格式的 JSON 文件：普通参数列表或 `snek` 预设，支持 `delayBuffer` 输出。 |
 | `--no-preview` | `preview.enabled=false` | 不生成预览视频。 |
 | `--no-rare` | `expressions.enabled=false` | 跳过鼓腮 / 吐舌阶段。 |
 | `--rare-stride N` | `expressions.stride` | 每 N 帧为鼓腮 / 吐舌打分一次（默认 3）。 |
 
 </details>
+
+**曲线插值。** `output.interpolation` 默认为 `linear`。`--set output.interpolation=bezier` 写出受限贝塞尔分段：关键帧约减半，更便于编辑，但每个贝塞尔分段计为三个点，因此文件更大。
 
 **JSON 结果**（`--json`）：
 
@@ -214,7 +222,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 |---|---|
 | `0` | 成功 |
 | `1` | `runtime`, `remote` |
-| `2` | `usage`, `config`, `input` |
+| `2` | `usage`, `config`, `input`, `invalid`（未通过校验的动作、编辑操作、映射或公式） |
 | `3` | `unusable_input`：视频无法打开，或未追踪到面部 |
 | `4` | `remote_unreachable`：无法连接计算主机 |
 | `130` | `interrupted`, `cancelled` |
@@ -232,9 +240,12 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `v2l config presets` | 以 JSON 输出内置预设和用户预设。 |
 | `v2l config validate FILE...` | 检查配置文件并输出合并结果。 |
 | `v2l version [--json]` | V2L 版本。 |
+| `v2l motion info\|read\|write\|edit\|refit\|eval\|validate ...` | 查看、转换、编辑、重新拟合、采样和校验动作文件。 |
+| `v2l mapping show\|inputs\|validate ...` | 模型的最终映射（含每个值的来源）、映射可用的输入，以及映射文件校验。 |
+| `v2l bridge show\|check\|validate ...` | 最终的 bridge 输出、单个公式检查，以及 SnenkBridge 预设或映射中 bridge 部分的校验。 |
 | `v2l mcp [...]` | MCP 服务器（见[智能体](#智能体-mcp--cli)）。 |
 
-`v2l config`、`v2l presets` 和 `v2l version` 只需要标准库。
+`v2l config`、`v2l presets`、`v2l version`、`v2l motion`、`v2l bridge` 以及不带 `--model` 的 `v2l mapping inputs|validate` 只需要标准库。格式和全部选项：[docs/motion-editing.md](docs/motion-editing.md)。
 
 ### `bin/v2l-remote`
 
@@ -243,6 +254,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `setup` | 将代码推送到 `V2L_HOST`，创建 `.venv`，执行 `pip install -e '.[test]'`，并预先下载追踪模型、Cubism Core 和渲染库。 |
 | `run VIDEO --model DIR --name NAME [--out DIR] [--no-install] [--json] [--progress text\|json] [v2l run options...]` | 在主机上运行 `v2l run`，并把结果取回到 `OUT/NAME/`（`--out` 默认为 `V2L_OUT`，未设置时为 `~/Downloads/v2l_out`）。 |
 | `probe --model DIR [--details] [--json]` | 在主机上探测本地模型。 |
+| `mapping show --model DIR [--mapping FILE] [--json]` | 在主机上计算本地模型的最终映射。 |
+| `mapping inputs\|validate ...`、`bridge ...` | 在笔记本上运行，不需要 `V2L_HOST`。 |
 | `check [--json]` | 检查主机是否可连接、是否已安装 V2L。 |
 | `version [--json]` | 本地 V2L 代码的版本。 |
 | `test` | 在主机上运行单元测试。 |
@@ -252,6 +265,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 - `--preset`、`--config` 文件、快捷参数和 `--set` 都在**笔记本上**解析，因此会使用你的用户预设和本地文件。每次运行上传一个包含最终设置的文件（如有本地 bridge 文件也一并上传），结束后删除。无效设置会在上传前报错。
 - `--dry-run` 在笔记本上运行，不建立连接。
+- `--mapping FILE` 会像设置文件一样上传，运行后删除；使用 `--dump-signals` 时，信号文件会随结果一起取回。
 - 停止 `v2l-remote`（Ctrl-C、SIGTERM 或 SIGHUP）时，主机上的任务也会停止，并删除该次运行的文件，退出码为 130。
 
 ### 环境变量
@@ -268,12 +282,12 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 ## 设置与预设
 
-所有可调参数都在同一个模式文件 `src/v2l/config.py` 中：10 个分区，共 66 项设置。CLI、V2L Studio 和 MCP 服务器读取同一模式，因此每项设置在各处的名称、范围和含义都相同。未知的键、错误的类型和超出范围的值都会报错。
+所有可调参数都在同一个模式文件 `src/v2l/config.py` 中：10 个分区，共 67 项设置。CLI、V2L Studio 和 MCP 服务器读取同一模式，因此每项设置在各处的名称、范围和含义都相同。未知的键、错误的类型和超出范围的值都会报错。
 
 | 分区 | 控制内容 | 示例键 |
 |---|---|---|
 | `input` | 使用视频的哪一部分以及如何读取。 | `start`, `end`, `flip` |
-| `output` | 动作的帧率、淡入淡出、循环和文件大小。 | `fps`, `loop`, `breath_period` |
+| `output` | 动作的帧率、淡入淡出、循环和文件大小。 | `fps`, `loop`, `interpolation` |
 | `calibration` | 如何估计静止表情和各表情的最大幅度。 | `neutral_window`, `jaw_full`, `gaze_full` |
 | `intensity` | 各组动作的整体强度。 | `head`, `smile`, `mouth_open` |
 | `gaps` | 面部短暂丢失时的处理方式。 | `max_gap`, `ramp` |
@@ -289,7 +303,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | 分区 | 设置 |
 |---|---|
 | `input` | `start`, `end`, `flip`, `analysis_width` |
-| `output` | `fps`, `fade`, `loop`, `loop_blend`, `breath_period`, `tolerance` |
+| `output` | `fps`, `fade`, `loop`, `loop_blend`, `breath_period`, `interpolation`, `tolerance` |
 | `calibration` | `neutral_window`, `neutral_seconds`, `rest_head_range`, `full_percentile`, `min_span`, `max_gain`, `blink_deadzone`, `blink_landmark_weight`, `eye_closed_ratio`, `eye_wide_range`, `jaw_full`, `lip_gap_full`, `mouth_narrow_full`, `mouth_wide_full`, `mouth_shift_full`, `gaze_full` |
 | `intensity` | `head`, `body`, `gaze`, `brows`, `smile`, `mouth_open`, `mouth_shape`, `cheek_tongue` |
 | `gaps` | `max_gap`, `ramp` |
@@ -336,6 +350,80 @@ v2l presets save talk_show talk_show.json
 v2l run clip.mp4 --model ~/Models/MyModel --name hello --preset talk_show --set intensity.smile=1.5
 ```
 
+## 编辑动作与映射
+
+动作和映射在生成之后仍可通过 CLI、MCP 服务器和 V2L Studio 编辑。文件格式、全部操作、公式语法和所有命令选项见完整规范 [docs/motion-editing.md](docs/motion-editing.md)。
+
+### 动作
+
+动作就是普通的 `.motion3.json` 文件。两个关键帧之间的每个区段为线性、贝塞尔、阶梯或反向阶梯之一。V2L 写出**受限贝塞尔**（`AreBeziersRestricted`）：两个控制点位于区段时间的 1/3 和 2/3 处，因此数值是时间的三次多项式，所有 Cubism 运行时的计算结果都相同。编辑器只修改控制值。其他工具生成的贝塞尔会被精确读取，只在编辑该区段时才转换。
+
+`v2l motion read` 返回可编辑的 JSON（关键帧、每个区段的类型、控制柄）。`v2l motion edit` 按顺序应用操作列表：插入、移动和删除关键帧，设置插值和控制柄，自动或平直切线，重新拟合、缩放、偏移、限幅、调整时间、裁剪和时间设置。无效操作会连同其序号一起报告，且不写入任何内容；已有的输出文件只有在使用 `--overwrite` 时才会被替换。
+
+```json
+[
+  {"op": "insert_key", "curve": "ParamAngleX", "t": 1.0, "value": 12},
+  {"op": "set_interpolation", "curves": ["ParamAngleX"], "type": "bezier", "from": 0.5, "to": 2.0},
+  {"op": "refit", "curves": "*", "tolerance": 0.004, "interpolation": "bezier"},
+  {"op": "trim", "from": 1.0, "to": 13.0}
+]
+```
+
+```bash
+v2l motion read hello.motion3.json --json                # editable JSON: keys, segment types, handles
+v2l motion edit hello.motion3.json --ops ops.json --out hello_edit.motion3.json --json
+v2l motion refit hello.motion3.json --interpolation bezier --tolerance 0.004 --out hello_bezier.motion3.json
+```
+
+### 映射
+
+映射文件（`--mapping FILE`）按模型改变追踪结果作用到 Live2D 参数的方式。它分三层，在追踪之后按此顺序应用：
+
+| 层 | 参照 | 可修改的内容 |
+|---|---|---|
+| `input_curves` | VBridger 的输入曲线 | 重塑追踪输入，例如让无法完全睁开的眼睛也能达到 1。 |
+| `bridge` | SnenkBridge 预设、VBridger 修饰器 | 修改、新增或禁用 bridge 输出：公式、SnenkBridge 风格的 `delayBuffer`，以及修饰器 `delayMs`、`smoothing` 和 `steps`。 |
+| `entries` | VTube Studio 参数设置 | 按 Live2D 参数设置输入、输入和输出范围、反转、限幅、响应曲线、平滑截止频率、呼吸、启用或停用。 |
+
+```json
+{
+  "format": "v2l.mapping",
+  "version": 1,
+  "input_curves": {"EyeWideLeft": {"points": [[0, 0], [0.6, 1], [1, 1]], "smooth": true}},
+  "bridge": [
+    {"name": "MouthOpen", "modifiers": {"smoothing": 0.2}},
+    {"name": "EarSwing", "func": "", "min": -1, "max": 1, "defaultValue": 0,
+     "delayBuffer": {"refParam": "FaceAngleX", "smoothing": 3, "delayCount": 8,
+                     "inMin": -20, "inMax": 20, "outMin": -1, "outMax": 1}}
+  ],
+  "entries": [
+    {"output": "ParamAngleX", "in": [-25, 25], "out": [-30, 30], "cutoff": 2.0},
+    {"output": "ParamEarL", "input": "EarSwing"},
+    {"output": "ParamBodyAngleZ", "enabled": false}
+  ]
+}
+```
+
+```bash
+v2l mapping inputs --json                               # input names, meaning, nominal range
+v2l mapping show --model ~/Models/MyModel --mapping MyModel.json
+v2l bridge check --func "0.5 + 0.5 * (MouthSmileLeft + MouthSmileRight)"
+v2l run clip.mp4 --model ~/Models/MyModel --name hello --mapping MyModel.json --dump-signals
+```
+
+只保存你修改的值，其余来自模型的 `*.vtube.json` 或标准映射，并经过渲染探测的方向修正。公式遵循 SnenkBridge 的语法，差异见规范。三层都在追踪之后应用，因此修改映射会复用追踪缓存。`--dump-signals` 写出包含逐帧输入和 bridge 输出的 `NAME.signals.json`，便于绘制映射所看到的数值。
+
+### 在 V2L Studio 中
+
+动作编辑器和映射编辑器（见 [V2L Studio](#v2l-studio)）使用相同的格式并调用相同的操作。
+
+<p align="center"><img src="docs/assets/motion-editor-light.png" alt="浅色主题下的 V2L Studio 动作编辑器：参数列表、带关键帧和贝塞尔控制柄的曲线图以及检查器" width="80%"></p>
+
+<p align="center">
+<img src="docs/assets/mapping-bridge-light.png" alt="浅色主题下的 V2L Studio 映射编辑器：带公式和修饰器的桥接输出标签页" width="49%">
+<img src="docs/assets/mapping-inputs-dark.png" alt="深色主题下的 V2L Studio 映射编辑器：带输入曲线的输入标签页" width="49%">
+</p>
+
 ## 智能体 (MCP & CLI)
 
 AI 智能体可以通过两种方式使用 V2L：带 `--json` 和 `--progress json` 的 CLI，或通过 stdio 运行的 [MCP](https://modelcontextprotocol.io/) 服务器。对已经能执行 shell 命令的编程智能体来说，CLI 更轻量；MCP 服务器适合聊天和桌面客户端。
@@ -378,7 +466,12 @@ codex mcp add v2l --env V2L_HOST=user@gpu-box --env V2L_DIR=v2l -- /abs/path/vid
 | `v2l_validate_settings(settings?, preset?)` | 仅对设置做试运行：应用预设和部分设置并进行检查。 |
 | `v2l_probe_model(model, details?)` | 探测模型的参数和屏幕方向。 |
 | `v2l_list_motions(model)` | 模型文件夹中的 `*.motion3.json` 文件。 |
-| `v2l_generate(video, model, name, preset?, settings?, preview?, out_dir?, install?, job?, wait_seconds?)` | 启动或恢复生成任务。 |
+| `v2l_mapping_get(model, mapping?)` | 模型的最终映射（全部三层）和可用的输入。 |
+| `v2l_bridge_check(func, mapping?)` | 检查单个 bridge 公式：读取的名称、未知名称、错误位置。 |
+| `v2l_motion_info(motion)` | 动作的曲线、分段类型、计数和问题。 |
+| `v2l_motion_read(motion, curves?)` | 以可编辑 JSON 返回动作。 |
+| `v2l_motion_edit(motion, operations, out, overwrite?, ranges?)` | 应用编辑操作，并将结果写为新动作。 |
+| `v2l_generate(video, model, name, preset?, settings?, mapping?, preview?, out_dir?, install?, job?, wait_seconds?)` | 启动或恢复生成任务。 |
 | `v2l_job_status(job, wait_seconds?)` | 等待任务并返回进度或结果。 |
 | `v2l_jobs()` | 所有已知任务。 |
 | `v2l_job_cancel(job)` | 停止排队或运行中的任务（远程模式下也会停止主机上的进程）。 |
@@ -400,6 +493,7 @@ codex mcp add v2l --env V2L_HOST=user@gpu-box --env V2L_DIR=v2l -- /abs/path/vid
 - 路径必须是绝对路径或以 `~` 开头；名称必须匹配 `^[A-Za-z0-9_-]{1,80}$`。
 - 安装到模型文件夹默认关闭：未启用 `install` 工具集时，`install=true` 会被拒绝。
 - 已存在的 `<out>/<name>/` 永远不会被覆盖。失败或取消的任务会删除自己的输出文件夹，因此重试时可以复用同一名称。
+- `v2l_motion_edit` 只写入输出文件夹或 `--allow-dir` 文件夹，只有启用 `install` 工具集时才写入模型文件夹，并在 `--read-only` 下隐藏。
 
 **GUI 客户端与 `PATH`。** 桌面应用通常以精简的 `PATH` 启动，可能找不到 `v2l`、`uv`、`rsync` 或 `ssh`。请在客户端配置中使用绝对路径，并确保 `bin/v2l-mcp` 所需的工具位于标准位置。从终端启动时，服务器会提示正在等待 MCP 客户端；这不是卡住。
 
@@ -415,8 +509,10 @@ V2L Studio（`bin/v2l-studio`）是一个 Electron 桌面应用，一侧是 Live
 - **查看器。** 取景预设、拖动与缩放、物理开关和进度条。按 **Space** 切换播放。纹理通过上限为 4K 的查看副本显示，不会修改模型文件夹。
 - **创建面板。** 选择或拖入视频，或用摄像头录制一段。设置动作名称、调校预设和风格，并可选择设置裁剪、静止表情片段、鼓腮/吐舌识别和镜像。⋯ 菜单可将这些值保存为默认值、重置，或把本次运行复制为 `v2l run` 命令。
 - **生成。** 显示带编号的阶段列表（upload、probe、tracking、expressions、solving、writing、preview、download），以及追踪和表情打分的帧进度；原始日志仍可查看。失败会注明原因（没有可用的面部、无法连接主机、设置无效、已取消），取消时会请求确认。完成的结果可以与原视频同步对比、保存到模型文件夹（覆盖前确认）、用 **使用这些设置** 重新载入其设置，或用 **用当前设置重新运行** 以带编号的名称重新生成。
+- **动作编辑器。** 点击 **编辑动作**（在动作列表旁或结果上）会在查看器下方打开曲线编辑器，查看器和原视频跟随播放头。可以选择、拖动和插入关键帧，编辑贝塞尔控制柄，在线性、贝塞尔、阶梯和反向阶梯之间切换区段，应用自动或平直切线，并在检查器中重新拟合、缩放、裁剪或调整时间。所有更改都支持撤销和重做，弹出面板列出键盘和鼠标快捷键。可另存为新动作、确认后覆盖，或保存到模型文件夹。
+- **映射编辑器。** 点击模型标题栏的 **映射**，或设置 → 生成默认值中的 **参数映射**，三层会以标签页（输入、桥接输出、参数）打开。**预览更改** 用未保存的映射复用追踪结果重新生成上一个结果并播放，再用 **保留** 或 **丢弃** 决定是否留下该结果。保存的映射会传给之后的每次运行。
 - **摄像头录制。** 3-2-1 倒计时和无表情提示，该片段即成为静止表情片段。录制时长 2.3–60 秒，麦克风需手动开启。录制文件保存在 `<V2L_OUT>/recordings/`。
-- **语言与主题。** 英语、韩语、日语和简体中文；跟随系统、浅色或深色主题。主题配色遵循 Adobe Spectrum 2 设计令牌。
+- **语言与主题。** 英语、韩语、日语和简体中文；跟随系统、浅色或深色主题。中性色取自 Adobe Spectrum 2，强调色在浅色主题中为珊瑚色（`#FD7688`），在深色主题中为 Spectrum 品红。
 
 ### 设置窗口
 
@@ -427,7 +523,7 @@ V2L Studio（`bin/v2l-studio`）是一个 Electron 桌面应用，一侧是 Live
 | 通用 | 语言、主题（跟随系统 / 浅色 / 深色）、默认模型文件夹、启动时打开上次的模型。 |
 | 计算 | **远程服务器**（主机、远程目录、**测试连接**、**设置服务器**）或 **本机**（`v2l` 可执行文件路径、**测试**、**设置本机**）。 |
 | 输出 | 输出文件夹、结果名称已存在时的处理方式、自动保存到模型文件夹（默认关闭）、预览视频（Studio 中默认关闭）。 |
-| 生成默认值 | 默认预设、风格、循环、镜像、鼓腮/吐舌及间隔、帧率、淡入淡出、bridge 预设。 |
+| 生成默认值 | 默认预设、风格、循环、镜像、鼓腮/吐舌及间隔、帧率、淡入淡出、bridge 预设、曲线插值、参数映射。 |
 | 调校 | 按 [设置与预设](#设置与预设) 中的分组显示模式中的全部设置。高级项隐藏在开关之后，每个设置和分组都可以重置，会改变追踪的设置带有“需重新跟踪视频”标记。 |
 | 预设 | 与 CLI 共用的内置预设和用户预设：应用、保存当前调校、重命名、删除、导入、导出。 |
 | 查看器 | 物理、4K 纹理、取景、循环和同步的默认值。 |
@@ -448,9 +544,10 @@ V2L Studio（`bin/v2l-studio`）是一个 Electron 桌面应用，一侧是 Live
 
 | 文件 | 内容 |
 |---|---|
-| `hello.motion3.json` | Cubism 动作：经过简化和校验的线性分段。 |
+| `hello.motion3.json` | Cubism 动作：默认为线性分段（`output.interpolation=bezier` 时为受限贝塞尔），经过简化和校验。 |
 | `hello.preview.mp4` | 原视频与开启物理的模型渲染并排显示（使用 `--no-preview` 时跳过）。 |
-| `hello.report.json` | 面部和姿态检测率、最长追踪缺失、所用的静止表情片段、眨眼、各参数的范围使用率、映射说明和警告。 |
+| `hello.report.json` | 面部和姿态检测率、最长追踪缺失、所用的静止表情片段、眨眼、各参数的范围使用率、最终映射、映射说明和警告。 |
+| `hello.signals.json` | 逐帧的追踪输入和 bridge 输出（仅在使用 `--dump-signals` 时）。 |
 
 默认情况下动作还会复制到模型文件夹，VTube Studio 随后会将其列为该模型的动画。
 
@@ -470,6 +567,7 @@ V2L Studio（`bin/v2l-studio`）是一个 Electron 桌面应用，一侧是 Live
 - 手臂和手只有在模型绑定会驱动它们时才会动，通常通过物理实现，不会复制表演者的手臂姿势。
 - 仅支持离线处理，没有实时追踪模式。
 - 每段视频仅支持一名表演者。
+- 映射文件新增的参数不会被渲染探测测量，因此其方向不会自动修正。
 
 ## 开发
 
@@ -505,7 +603,7 @@ V2L_REGRESS_MODEL=/path/to/model bin/v2l-remote regress
 
 ## 第三方组件与许可证
 
-V2L 自身代码采用 MIT 许可证（[LICENSE](LICENSE)）。除内联在 V2L Studio 中的 6 个 Lucide 图标外，第三方文件由包管理器安装或在首次使用时下载，不包含在本仓库中：
+V2L 自身代码采用 MIT 许可证（[LICENSE](LICENSE)）。除内联在 V2L Studio 中的 21 个 Lucide 图标外，第三方文件由包管理器安装或在首次使用时下载，不包含在本仓库中：
 
 | 组件 | 许可证 |
 |---|---|
@@ -514,7 +612,7 @@ V2L 自身代码采用 MIT 许可证（[LICENSE](LICENSE)）。除内联在 V2L 
 | pixi-live2d-display 0.4.0 (`cubism4.min.js`) | MIT；内含采用 Live2D Open Software License 的 Cubism Framework |
 | MediaPipe Face / Pose Landmarker 模型 | Apache-2.0 |
 | SigLIP 2 (`google/siglip2-so400m-patch14-384`) | Apache-2.0 |
-| [Lucide](https://lucide.dev) 图标（6 个，内联在 V2L Studio 中） | ISC；其中 4 个源自 Feather（MIT） |
+| [Lucide](https://lucide.dev) 图标（21 个，内联在 V2L Studio 中） | ISC；其中 7 个源自 Feather（MIT） |
 
 pixi 文件在 `src/v2l/web/assets.json` 中以 SHA-256 固定。详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。不包含第三方 bridge 预设。
 
@@ -530,8 +628,9 @@ pixi 文件在 `src/v2l/web/assets.json` 中以 SHA-256 固定。详情见 [THIR
 - 渲染：[pixi-live2d-display](https://github.com/guansss/pixi-live2d-display) 和 [PixiJS](https://github.com/pixijs/pixijs)。
 - 模型格式与运行时：[Live2D Cubism](https://www.live2d.com/)。
 - V2L Studio 的图标：[Lucide](https://lucide.dev)；主题的设计令牌：[Adobe Spectrum 2](https://spectrum.adobe.com/)。
-- bridge 解释器所实现的 [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) 公式语言。
-- [VBridger](https://store.steampowered.com/app/1898830/VBridger/)，V2L 以其工作流为参照。
+- bridge 解释器所实现的 [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) 公式语言及其延迟缓冲，也是映射编辑器的参考。
+- [VBridger](https://store.steampowered.com/app/1898830/VBridger/)，V2L 以其工作流为参照，映射编辑器沿用了它的输入曲线和修饰器。
+- [SandoitchiBridge](https://github.com/an1by/SandoitchiBridge)，其变换配置为映射文件的设计提供了参考。
 
 ## 许可证
 

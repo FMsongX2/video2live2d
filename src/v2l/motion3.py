@@ -1,8 +1,11 @@
-"""Cubism .motion3.json writing, reading back and validation (linear segments only)."""
+"""Cubism .motion3.json writing from dense parameter curves; reading back and validation are in
+motionedit (every segment type)."""
 
 from __future__ import annotations
 
 import numpy as np
+
+from . import motionedit
 
 
 def rdp(t: np.ndarray, v: np.ndarray, eps: float) -> list[int]:
@@ -23,9 +26,26 @@ def rdp(t: np.ndarray, v: np.ndarray, eps: float) -> list[int]:
     return sorted(keep)
 
 
+def _bezier_segments(t: np.ndarray, v: np.ndarray, eps: float) -> tuple[list, int, int]:
+    """Fitted restricted Bezier curve: (Segments list, segment count, point count)."""
+    keys, segs = motionedit.fit_bezier(t.tolist(), v.tolist(), eps)
+    times = [round(float(k[0]), 4) for k in keys]
+    out = [times[0], round(float(keys[0][1]), 5)]
+    for i, s in enumerate(segs):
+        t0, t1 = times[i], times[i + 1]
+        out += [1, round(t0 + (t1 - t0) / 3, 4), round(float(s["c1"][1]), 5),
+                round(t1 - (t1 - t0) / 3, 4), round(float(s["c2"][1]), 5), t1, round(float(keys[i + 1][1]), 5)]
+    return out, len(segs), 1 + 3 * len(segs)
+
+
 def build(params: dict[str, np.ndarray], ranges: dict, fps: float, *, loop: bool = False,
-          fade_in: float = 0.5, fade_out: float = 0.5, tolerance: float = 0.004) -> dict:
-    """tolerance is the largest allowed deviation as a fraction of each parameter's range."""
+          fade_in: float = 0.5, fade_out: float = 0.5, tolerance: float = 0.004,
+          interpolation: str = "linear") -> dict:
+    """tolerance is the largest allowed deviation as a fraction of each parameter's range.
+    interpolation: "linear" (Ramer-Douglas-Peucker points joined by straight segments) or "bezier"
+    (restricted Bezier segments fitted by motionedit.fit_bezier, smooth at every key)."""
+    if interpolation not in ("linear", "bezier"):
+        raise ValueError(f"interpolation must be linear or bezier, not {interpolation!r}")
     n = len(next(iter(params.values())))
     if n < 2:
         raise ValueError("a motion needs at least two frames")
@@ -34,13 +54,18 @@ def build(params: dict[str, np.ndarray], ranges: dict, fps: float, *, loop: bool
     for pid in sorted(params):
         r = ranges[pid]
         v = np.clip(np.asarray(params[pid], dtype=float), r["min"], r["max"])
-        idx = rdp(t, v, eps=tolerance * (r["max"] - r["min"]))
-        segs = [round(float(t[idx[0]]), 4), round(float(v[idx[0]]), 5)]
-        for k in idx[1:]:
-            segs += [0, round(float(t[k]), 4), round(float(v[k]), 5)]
+        eps = tolerance * (r["max"] - r["min"])
+        if interpolation == "bezier":
+            segs, n_seg, n_pt = _bezier_segments(t, v, eps)
+        else:
+            idx = rdp(t, v, eps=eps)
+            segs = [round(float(t[idx[0]]), 4), round(float(v[idx[0]]), 5)]
+            for k in idx[1:]:
+                segs += [0, round(float(t[k]), 4), round(float(v[k]), 5)]
+            n_seg, n_pt = len(idx) - 1, len(idx)
         curves.append({"Target": "Parameter", "Id": pid, "Segments": segs})
-        seg_total += len(idx) - 1
-        pt_total += len(idx)
+        seg_total += n_seg
+        pt_total += n_pt
     return {
         "Version": 3,
         "Meta": {
@@ -61,55 +86,8 @@ def build(params: dict[str, np.ndarray], ranges: dict, fps: float, *, loop: bool
 
 
 def evaluate(motion: dict, times: np.ndarray) -> dict[str, np.ndarray]:
-    """Parameter values at the given times (linear segments; other types raise)."""
-    out = {}
-    for c in motion["Curves"]:
-        s = c["Segments"]
-        pts_t, pts_v = [s[0]], [s[1]]
-        i = 2
-        while i < len(s):
-            if s[i] != 0:
-                raise ValueError(f"{c['Id']}: only linear segments are supported, got type {s[i]}")
-            pts_t.append(s[i + 1])
-            pts_v.append(s[i + 2])
-            i += 3
-        out[c["Id"]] = np.interp(times, pts_t, pts_v)
-    return out
+    """Parameter values at the given times (every segment type)."""
+    return {k: np.asarray(v) for k, v in motionedit.evaluate(motion, np.asarray(times, dtype=float).tolist()).items()}
 
 
-def validate(motion: dict, ranges: dict | None = None) -> list[str]:
-    """Problems that would make Cubism runtimes misread the file; empty when valid."""
-    errs: list[str] = []
-    meta = motion.get("Meta", {})
-    curves = motion.get("Curves", [])
-    if motion.get("Version") != 3:
-        errs.append("Version must be 3")
-    if meta.get("CurveCount") != len(curves):
-        errs.append("Meta.CurveCount does not match Curves")
-    segs = pts = 0
-    for c in curves:
-        s = c.get("Segments", [])
-        if len(s) < 2 or (len(s) - 2) % 3:
-            errs.append(f"{c.get('Id')}: malformed linear segment list")
-            continue
-        ts = [s[0]] + s[3::3]
-        if any(b <= a for a, b in zip(ts, ts[1:])):
-            errs.append(f"{c.get('Id')}: segment times are not strictly increasing")
-        if ts[0] != 0:
-            errs.append(f"{c.get('Id')}: first point is not at time 0")
-        if abs(ts[-1] - meta.get("Duration", -1)) > 1e-3:
-            errs.append(f"{c.get('Id')}: last point {ts[-1]} != Duration")
-        if ranges is not None:
-            r = ranges.get(c.get("Id"))
-            vals = [s[1]] + s[4::3]
-            if r is None:
-                errs.append(f"{c.get('Id')}: not a parameter of the model")
-            elif min(vals) < r["min"] - 1e-6 or max(vals) > r["max"] + 1e-6:
-                errs.append(f"{c.get('Id')}: values outside {r['min']}..{r['max']}")
-        segs += (len(s) - 2) // 3
-        pts += 1 + (len(s) - 2) // 3
-    if meta.get("TotalSegmentCount") != segs:
-        errs.append("Meta.TotalSegmentCount does not match")
-    if meta.get("TotalPointCount") != pts:
-        errs.append("Meta.TotalPointCount does not match")
-    return errs
+validate = motionedit.validate

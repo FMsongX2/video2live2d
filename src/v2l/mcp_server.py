@@ -88,12 +88,79 @@ def model_digest(model_dir: pathlib.Path) -> str:
 
 
 def request_key(video: pathlib.Path, model_dir: pathlib.Path, cfg: C.Config, name: str, target: pathlib.Path,
-                install: bool) -> str:
+                install: bool, mapping: dict | None = None) -> str:
     h = hashlib.sha256()
     _digest_file(video, h)
     h.update(model_digest(model_dir).encode())
     h.update(json.dumps([C.to_dict(cfg), name, str(target), install], sort_keys=True).encode())
+    if mapping:
+        h.update(json.dumps(mapping, sort_keys=True).encode())
     return h.hexdigest()
+
+
+def mapping_arg(policy: "Policy", value: Any, bridge: str) -> dict | None:
+    """A v2l.mapping override given as an object or as an absolute path, checked without the model."""
+    from . import mapping
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        p = policy.path(value, "mapping")
+        if not p.is_file():
+            raise ToolInputError(f"mapping file not found: {p}")
+        try:
+            value = mapping.load_overrides(p)
+        except mapping.MappingError as e:
+            raise ToolInputError(str(e)) from None
+    errs, _ = mapping.check(value, bridge=bridge)
+    if errs:
+        raise ToolInputError("invalid mapping: " + "; ".join(errs))
+    return value
+
+
+def in_model_folder(path: pathlib.Path) -> bool:
+    """Whether path lies in a Live2D model folder (a *.model3.json up to three levels above it)."""
+    for d in list(path.parents)[:3]:
+        if d.is_dir() and any(d.glob("*.model3.json")):
+            return True
+    return False
+
+
+def motion_edit(policy: "Policy", motion: Any, operations: Any, out: Any, overwrite: bool = False,
+                ranges: dict | None = None) -> dict:
+    """Applies operations to a motion and writes the result (see v2l_motion_edit)."""
+    from . import motionedit as ME
+
+    src = policy.path(motion, "motion", (default_out_dir(),))
+    if not src.is_file():
+        raise ToolInputError(f"motion not found: {src}")
+    dst = policy.path(out, "out", (default_out_dir(),))
+    roots = (*policy.allow_dirs, default_out_dir())
+    if not any(dst == d or dst.is_relative_to(d) for d in roots):
+        raise ToolInputError(f"out {dst} must lie in the output folder ({default_out_dir()})"
+                             + (f" or an allowed folder ({', '.join(map(str, policy.allow_dirs))})"
+                                if policy.allow_dirs else ""))
+    if not dst.name.endswith(".motion3.json"):
+        raise ToolInputError("out must be a *.motion3.json path")
+    if in_model_folder(dst) and not policy.enabled("install"):
+        raise ToolInputError("writing into a model folder needs the install toolset (only the user can enable "
+                             "it); write under the output folder and install with v2l_install_motion")
+    if dst.exists() and not overwrite:
+        raise ToolInputError(f"{dst} already exists; pass overwrite=true to replace it")
+    if ranges is not None:
+        ranges = {k: ({"min": r[0], "max": r[1]} if isinstance(r, (list, tuple)) else r) for k, r in ranges.items()}
+    try:
+        edit, reports = ME.apply(ME.load(str(src)), operations, ranges)
+        ME.save(edit, dst, overwrite=True)
+    except ME.EditError as e:
+        raise ToolInputError(str(e)) from None
+    except (ME.MotionError, ValueError) as e:
+        raise ToolInputError(f"invalid motion: {e}") from None
+    res = {"out": str(dst), "applied": len(reports), "counts": ME.counts(edit)}
+    refits = {k: v for r in reports if r for k, v in r.items()}
+    if refits:
+        res["curves"] = refits
+    return res
 
 
 @dataclasses.dataclass
@@ -305,7 +372,7 @@ class Jobs:
 
     # ---- lifecycle
     def submit(self, key: str, video: pathlib.Path, model: pathlib.Path, name: str, cfg: C.Config,
-               base: pathlib.Path, install: bool) -> Job:
+               base: pathlib.Path, install: bool, mapping: dict | None = None) -> Job:
         """Starts a job (the caller has validated the arguments and checked by_key)."""
         target = base / name
         if target.exists():
@@ -324,6 +391,10 @@ class Jobs:
                 "--config", str(cfg_file), "--json", "--progress", "json"]
         if not install:
             argv.append("--no-install")
+        if mapping:
+            map_file = pathlib.Path(workdir) / "mapping.json"
+            map_file.write_text(json.dumps(mapping, indent=1))
+            argv += ["--mapping", str(map_file)]
         job = Job(id=job_id, key=key, name=name, video=str(video), model_dir=str(model), out_dir=str(target),
                   install=install, mode=self.mode, argv=argv, workdir=workdir)
         self.jobs[job_id] = job
@@ -499,7 +570,10 @@ waits up to ~40 s; while the result says status "queued"/"running", call v2l_job
 second run for the same request). Jobs take roughly 0.5-2x the clip length on a GPU server and much longer on
 a laptop CPU; trim with settings {"input": {"start": s, "end": s}} while experimenting. Paths are on the machine
 running this server and must be absolute (or start with ~). Each job writes a new folder <output>/<name>/;
-existing results are never overwritten."""
+existing results are never overwritten.
+Adjusting results: v2l_mapping_get shows which tracked input drives which model parameter; pass changes as
+v2l_generate(mapping=...) (a new name; cached tracking is reused). v2l_motion_read / v2l_motion_edit edit the
+curves of a finished motion (keys, interpolation, Bezier handles, refit, trim, ...)."""
 
 JOB_SHAPE = """Returns {"job", "name", "status": queued | running | succeeded | failed | cancelled, "stage": upload |
 probe | tracking | expressions | solving | writing | preview | download | null, "progress": {"done", "total"}
@@ -507,8 +581,14 @@ probe | tracking | expressions | solving | writing | preview | download | null, 
 do next), "log_tail", "result", "error"}. On success result is {"ok": true, "name", "out_dir", "files":
 {"motion", "report", "preview" (null when not rendered)}, "installed": path or null, "summary": {"face_rate",
 "curves", "points", "blinks", "warnings", ...}}; files.report holds per-parameter detail and the effective
-settings. On failure error is {"type": usage | config | input | unusable_input (no face tracked) | runtime |
-remote | remote_unreachable | interrupted | cancelled, "message"}."""
+settings. On failure error is {"type": usage | config | input | invalid (bad mapping) | unusable_input (no face
+tracked) | runtime | remote | remote_unreachable | interrupted | cancelled, "message"}."""
+
+MOTION_EDIT_SHAPE = """The editable motion is {"format": "v2l.motion-edit", "version": 1, "meta": {"duration",
+"fps", "loop", "fade_in", "fade_out", "restricted"}, "curves": [{"target", "id", "keys": [[t, v], ...], "segments":
+[{"type": "linear" | "stepped" | "inverse_stepped"} | {"type": "bezier", "c1": [t, v], "c2": [t, v]}]}],
+"passthrough": {...}}; segments[i] joins keys[i] and keys[i+1]. With meta.restricted (always true for v2l output)
+Bezier control times sit at 1/3 and 2/3 of the segment and only the control values matter."""
 
 
 def build_server(jobs: Jobs | None = None, policy: Policy | None = None):
@@ -601,6 +681,134 @@ def build_server(jobs: Jobs | None = None, policy: Policy | None = None):
         except ToolInputError as e:
             fail(e)
 
+    @tool("inspect", ToolAnnotations(readOnlyHint=True, openWorldHint=False, idempotentHint=True))
+    async def v2l_mapping_get(model: str, mapping: dict[str, Any] | str | None = None) -> dict[str, Any]:
+        """The effective mapping of a Live2D model in its three layers, and the inputs a mapping may use.
+        model: absolute path of the model folder. mapping: optional v2l.mapping file contents or the absolute
+        path of such a file: {"format": "v2l.mapping", "version": 1, "input_curves"?: {tracking input name:
+        {"points": [[x, y], ...] (x and y 0..1 over the input's nominal range, x from 0 to 1 strictly
+        increasing), "smooth": true (monotone cubic) | false (linear)}}, "bridge"?: [{"name", "func"?, "min"?,
+        "max"?, "defaultValue"?, "delayBuffer"?: {"refParam", "smoothing", "delayCount", "inMin", "inMax",
+        "outMin", "outMax"} | null, "modifiers"?: {"delayMs"?, "smoothing"? (0..1), "steps"?: [{"trigger",
+        "target", "holdMs"?, "threshold"?}]} | null, "enabled"?}] (same name as a preset output patches it,
+        a new name adds one, enabled false drops it), "entries"?: [{"output": parameter id, "input"?, "in"?: [lo,
+        hi], "out"?: [lo, hi], "clamp_in"?, "clamp_out"?, "invert"?, "curve"?: {"points", "smooth"} | null
+        (normalized input -> output), "cutoff"?: Hz | null (low-pass override), "breathing"?, "enabled"?}]};
+        entries patch the base entry with the same output (omitted fields inherited), add one for an unmapped
+        parameter (needs input), or remove one (enabled false). Returns {"model", "model_dir", "base": "vtube" |
+        "fallback", "bridge": preset name, "input_curves", "bridge_params": [{"name", "func", "min", "max",
+        "defaultValue", "delayBuffer", "modifiers", "source": preset | override | added | disabled,
+        "overridden", "inputs", "unknown"}], "entries": [{"output", "input", "in", "out" (before invert),
+        "clamp_in", "clamp_out", "invert", "curve", "cutoff", "breathing", "enabled", "source": vtube | fallback
+        | override | added, "applied_out" (range actually used), "overridden", "corrections": [body | direction
+        | side], "filter_group", "default_cutoff"}], "notes" (probe corrections), "warnings", "parameters":
+        [{"id", "name", "min", "max", "default", "mapped", "physics"}], "inputs": [{"name", "kind": bridge |
+        tracking, "range", "default", "meaning", "shadowed"?}]}. To change a mapping, pass only the fields you
+        want to change (v2l_generate mapping). Check a formula first with v2l_bridge_check. The first call per
+        model renders it to measure parameter directions (cached afterwards)."""
+        from . import inputs
+
+        try:
+            d = policy.model_dir(model)
+            data = mapping_arg(policy, mapping, "default")
+            argv = [*jobs.cli, "mapping", "show", "--model", str(d), "--json"]
+            with tempfile.TemporaryDirectory(prefix="v2l-mcp-map-") as tmp:
+                if data is not None:
+                    f = pathlib.Path(tmp) / "mapping.json"
+                    f.write_text(json.dumps(data))
+                    argv += ["--mapping", str(f)]
+                res = await run_cli(argv, jobs.env())
+            res.pop("ok", None)
+            res["mapping_file"] = mapping if isinstance(mapping, str) else None
+            res["inputs"] = inputs.listing("default", (data or {}).get("bridge"))["inputs"]
+            return res
+        except ToolInputError as e:
+            fail(e)
+
+    @tool("inspect", ro)
+    async def v2l_bridge_check(func: str, mapping: dict[str, Any] | str | None = None) -> dict[str, Any]:
+        """Checks one bridge formula (SnenkBridge/VBridger syntax: numbers, input names, + - * / % ^,
+        comparisons, && || !, if(c, a, b), min/max and math::* functions, // and /* */ comments) without running
+        anything. mapping: optional v2l.mapping (object or absolute path) whose added bridge outputs count as
+        known names. Returns {"valid", "inputs": [names it reads], "unknown": [names nothing provides; they read
+        as 0], "functions", "tokens": [{"start", "end", "kind": number | name | function | operator | paren |
+        comma}], "problem": null | {"message", "position", "end"}} with 0-based character offsets into func."""
+        from . import bridge as B
+
+        try:
+            data = mapping_arg(policy, mapping, "default")
+        except ToolInputError as e:
+            fail(e)
+        _, preset = B.read_preset("default")
+        eff = B.effective(preset, (data or {}).get("bridge"))
+        return B.check(func, B.known_names(p["name"] for p in eff if B._active(p)))
+
+    @tool("inspect", ro)
+    async def v2l_motion_info(motion: str) -> dict[str, Any]:
+        """Summary of a *.motion3.json (absolute path): {"meta": {"duration", "fps", "loop", "fade_in",
+        "fade_out", "restricted"}, "counts": {"curves", "segments", "points", "keys", "user_data"}, "curves":
+        [{"target", "id", "keys", "types": {"linear", "bezier", "stepped", "inverse_stepped"}, "min", "max"}],
+        "problems": [validation problems; empty when valid]}."""
+        from . import motionedit as ME
+
+        try:
+            p = policy.path(motion, "motion", (default_out_dir(),))
+            if not p.is_file():
+                raise ToolInputError(f"motion not found: {p}")
+            try:
+                data = ME.read_json(str(p))
+                return {**ME.info(ME.as_editable(data)), "problems": ME.validate(data)}
+            except (ME.MotionError, ValueError) as e:
+                raise ToolInputError(f"cannot read {p}: {e}") from None
+        except ToolInputError as e:
+            fail(e)
+
+    @tool("inspect", ro, """Reads a *.motion3.json (absolute path) as an editable motion: keys, per-segment
+        interpolation and Bezier handles. curves: optional list of curve ids (default: all; a motion has one curve
+        per parameter). Returns {"motion": <editable motion>}. """ + MOTION_EDIT_SHAPE)
+    async def v2l_motion_read(motion: str, curves: list[str] | None = None) -> dict[str, Any]:
+        from . import motionedit as ME
+
+        try:
+            p = policy.path(motion, "motion", (default_out_dir(),))
+            if not p.is_file():
+                raise ToolInputError(f"motion not found: {p}")
+            try:
+                return {"motion": ME.load(str(p), curves)}
+            except (ME.MotionError, ValueError) as e:
+                raise ToolInputError(f"cannot read {p}: {e}") from None
+        except ToolInputError as e:
+            fail(e)
+
+    @tool("generate", ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False,
+                                      openWorldHint=False),
+          """Edits a motion: applies operations in order to the *.motion3.json at motion (absolute path) and writes
+        the result to out (absolute *.motion3.json path inside the output folder or an allowed folder; inside a
+        Live2D model folder only when the server enables the install toolset). An existing out is replaced only
+        with overwrite=true; writing back onto the source is allowed with overwrite=true. Nothing is written
+        when any operation is invalid. Operations (times in seconds; curves: list of ids or "*"; a key is
+        addressed by its time within 0.0001 s): {"op": "set_interpolation", "curves", "type": linear | bezier |
+        stepped | inverse_stepped, "from"?, "to"?} (segments overlapping [from, to]; bezier starts from smooth
+        handles); {"op": "insert_key", "curve", "t", "value"?} (keeps the shape; value moves the new key with its
+        handles); {"op": "delete_keys", "curve", "times" | "from"/"to"} (first and last key stay; naming them is
+        an error); {"op": "move_key", "curve", "t", "to_t"?, "to_value"?} (to_t strictly between the
+        neighbours; first/last key cannot move in time); {"op": "set_handles", "curve", "segment": start time,
+        "c1v"?, "c2v"?} (bezier segments only); {"op": "auto_tangents" | "flatten_tangents", "curves", "from"?,
+        "to"?}; {"op": "refit", "curves", "tolerance": fraction of the range, "interpolation": bezier |
+        linear}; {"op": "scale_values", "curves", "factor", "pivot": zero | first | mean | number}; {"op":
+        "offset_values", "curves", "delta"}; {"op": "clamp", "ranges": {id: [min, max]}}; {"op": "retime",
+        "factor"}; {"op": "trim", "from", "to"}; {"op": "set_meta", "loop"?, "fade_in"?, "fade_out"?, "fps"?,
+        "duration"?}; {"op": "delete_curve", "curve"}. ranges: optional {id: [min, max]} used as the range for
+        refit tolerances (default: each curve's own value span). Returns {"out", "applied", "counts": {"curves",
+        "segments", "points", "keys", "user_data"}, "curves"?: refit report {id: {"keys_before", "keys_after",
+        "max_error", "tolerance"}}}.""")
+    async def v2l_motion_edit(motion: str, operations: list[dict[str, Any]], out: str, overwrite: bool = False,
+                              ranges: dict[str, list[float]] | None = None) -> dict[str, Any]:
+        try:
+            return await asyncio.to_thread(motion_edit, policy, motion, operations, out, overwrite, ranges)
+        except ToolInputError as e:
+            fail(e)
+
     @tool("inspect", ro, "Lists the jobs this server knows (also from earlier sessions), newest first: {\"mode\": "
                          "\"local\" | \"remote\", \"jobs\": [{\"job\", \"name\", \"status\", \"stage\", \"percent\", "
                          "\"elapsed_s\", \"out_dir\"}]}.")
@@ -633,12 +841,14 @@ def build_server(jobs: Jobs | None = None, policy: Policy | None = None):
         (overrides settings.preview.enabled; default true; takes about as long as tracking). out_dir: absolute
         output folder (default: the configured output folder, $V2L_OUT or ~/Downloads/v2l_out); results go to
         <out_dir>/<name>/, which must not exist yet. install: also copy the motion into the model folder (only
-        when the server enables the install toolset; refused if the model has <name>.motion3.json). job: an
-        existing job id to resume instead (other arguments are then ignored). """ + JOB_SHAPE)
+        when the server enables the install toolset; refused if the model has <name>.motion3.json). mapping:
+        optional v2l.mapping overrides (object or absolute path; see v2l_mapping_get), applied after tracking.
+        job: an existing job id to resume instead (other arguments are then ignored). """ + JOB_SHAPE)
     async def v2l_generate(video: str | None = None, model: str | None = None, name: str | None = None,
                            preset: str | None = None, settings: dict[str, Any] | None = None,
                            preview: bool | None = None, out_dir: str | None = None, install: bool = False,
                            job: str | None = None, wait_seconds: float = DEFAULT_WAIT_S,
+                           mapping: dict[str, Any] | str | None = None,
                            ctx: Context | None = None) -> dict[str, Any]:
         try:
             if job is not None:
@@ -661,8 +871,9 @@ def build_server(jobs: Jobs | None = None, policy: Policy | None = None):
                     raise ToolInputError("invalid settings: " + "; ".join(errors))
                 if preview is not None:
                     cfg = dataclasses.replace(cfg, preview=dataclasses.replace(cfg.preview, enabled=bool(preview)))
-                key = await asyncio.to_thread(request_key, v, m, cfg, name, base / name, bool(install))
-                j = jobs.by_key(key) or jobs.submit(key, v, m, name, cfg, base, bool(install))
+                overrides = mapping_arg(policy, mapping, cfg.bridge.preset)
+                key = await asyncio.to_thread(request_key, v, m, cfg, name, base / name, bool(install), overrides)
+                j = jobs.by_key(key) or jobs.submit(key, v, m, name, cfg, base, bool(install), overrides)
         except ToolInputError as e:
             fail(e)
         return (await jobs.wait(j, wait_seconds, await reporter(ctx) if ctx else None)).view()

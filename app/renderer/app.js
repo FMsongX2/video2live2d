@@ -1,6 +1,9 @@
 import { parseMotion } from "./motion.js";
 import { Viewer } from "./viewer.js";
+import { MotionEditor } from "./editor.js";
+import { ICONS } from "./icons.js";
 import { clearAttr, msg, setAttr, setLanguage, setRaw, setText, t } from "./i18n.js";
+import { initMapping, isMappingOpen, openMapping, refreshMapping } from "./mapping.js";
 import { errorText, prefs, same } from "./prefs.js";
 import { initSettings, isSettingsOpen, openSettings, presetTitle, runCheck } from "./settings.js";
 
@@ -15,7 +18,7 @@ const NEUTRAL = { from: 0.3, to: 1.3 };
 const MAX_RECORDING_SECONDS = 60;
 const MIN_RECORDING_SECONDS = 2.3;
 // Bench fields that start from the generation defaults (Settings), per run.
-const BENCH_DEFAULTS = { "style.name": "style", "output.loop": "opt-loop", "input.flip": "flip", "expressions.enabled": "rare" };
+const BENCH_DEFAULTS = { "style.name": "style", "output.loop": "opt-loop", "output.interpolation": "interp", "input.flip": "flip", "expressions.enabled": "rare" };
 // Stages reported by `v2l run --progress json`; v2l-remote adds upload and download.
 const STAGES = ["probe", "tracking", "expressions", "solving", "writing", "preview"];
 let cam = null;
@@ -24,6 +27,23 @@ let selectionRequest = 0;
 let scrubbing = false;
 const viewer = new Viewer($("stage"));
 viewer.clock = clockTime;
+for (const el of document.querySelectorAll("[data-icon]")) el.insertAdjacentHTML("afterbegin", ICONS[el.dataset.icon]);
+
+// The motion editor previews through the same entry and clock as playback.
+const editor = new MotionEditor({
+  viewer,
+  time: () => clockTime() ?? 0,
+  seek: (time) => {
+    if (!state.entry?.parsed) return;
+    if (synced()) $("video").currentTime = time + state.entry.video.start; else state.t = time;
+  },
+  togglePlay: () => setPlaying(synced() ? $("video").paused : !state.playing).catch((err) => fail(err)),
+  setPreview: (parsed) => { if (state.entry) { state.entry.parsed = parsed; viewer.motion = parsed; } },
+  onSaved: (saved, previous) => editorSaved(saved, previous),
+  onClose: () => editorClosed(),
+  status: (key, params, tone = "idle") => { setText($("editor-status"), key, params); $("editor-status").closest("footer").dataset.tone = tone; },
+  modelDir: () => state.model?.dir || null,
+});
 
 function status(key, params, tone = "idle") {
   setText($("status"), key, params);
@@ -39,7 +59,7 @@ function action(fn) {
     catch (err) { fail(err); }
   };
 }
-function locked() { return state.running || state.loading || state.capture !== "closed"; }
+function locked() { return state.running || state.loading || state.capture !== "closed" || editor.open; }
 function notConfigured() { return state.compute && state.compute.configured === false; }
 function readyMessage() {
   if (!state.model) status("status.needModel");
@@ -56,6 +76,11 @@ function updateControls() {
   if (state.server !== true) setAttr($("run"), "title", "server.notConfiguredTitle"); else clearAttr($("run"), "title");
   $("run-again").disabled = busy || !state.result || state.server !== true || !state.videoReady || state.video?.file !== state.result.source?.file || state.model?.dir !== state.result.modelDir;
   $("use-settings").disabled = busy || !state.result?.report?.config;
+  $("apply-mapping").disabled = !canApplyMapping();
+  $("preview-keep").disabled = $("preview-discard").disabled = busy;
+  $("result-edit").disabled = busy || !state.result?.motion;
+  $("edit-motion").disabled = busy || !state.entry?.file;
+  $("open-mapping").disabled = state.loading || !state.model;
   $("cancel").classList.toggle("hidden", !state.running);
   $("cancel").disabled = !state.running || !!state.run?.cancelling;
   for (const id of ["open-model", "tex4k", "open-video", "open-cam", "motion-select", "sync"]) $(id).disabled = busy;
@@ -163,7 +188,7 @@ function renderMotionList() {
   select.replaceChildren(idle);
   for (const entry of state.entries) {
     const option = new Option("", entry.key);
-    if (entry.generated) setText(option, "motion.generated", { name: entry.name }); else setRaw(option, entry.label);
+    if (entry.generated) setText(option, "motion.generated", { name: entry.name }); else if (entry.edited) setText(option, "motion.edited", { name: entry.name }); else setRaw(option, entry.label);
     select.add(option);
   }
   select.value = state.entry?.key || "";
@@ -190,7 +215,7 @@ $("motion-select").addEventListener("change", action((e) => selectMotion(e.targe
 $("sync").addEventListener("change", action(() => selectMotion(state.entry?.key || "")));
 function setModelMotions(list) {
   const selected = state.entry?.key;
-  state.entries = [...state.entries.filter((e) => e.generated), ...list.map((m) => ({ key: `model:${m.file}`, label: m.name, ...m }))];
+  state.entries = [...state.entries.filter((e) => !e.key.startsWith("model:")), ...list.map((m) => ({ key: `model:${m.file}`, label: m.name, ...m }))];
   if (state.entry && !state.entries.some((e) => e.key === selected)) { state.entry = null; viewer.motion = null; }
   renderMotionList();
 }
@@ -209,7 +234,7 @@ async function openModel(dir) {
     $("video").pause(); state.playing = false; playLabel(false);
     const info = await viewer.load(model.settingsUrl);
     viewer.motion = null; viewer.setPhysics($("physics").checked);
-    state.entries = state.model?.dir === model.dir ? state.entries.filter((e) => e.generated) : [];
+    state.entries = state.model?.dir === model.dir ? state.entries.filter((e) => !e.key.startsWith("model:")) : [];
     if (state.model?.dir !== model.dir) { state.result = null; $("result").classList.add("hidden"); }
     state.model = model; state.entry = null; state.t = 0;
     setRaw($("model-name"), model.name);
@@ -417,7 +442,7 @@ for (const id of ["cam-device", "cam-mic"]) $(id).addEventListener("change", ope
 $("rec").addEventListener("click", action(() => state.capture === "recording" ? stopRecording() : startRecording()));
 window.addEventListener("pagehide", releaseCamera);
 window.addEventListener("beforeunload", (event) => {
-  if (state.running || ["countdown", "recording", "saving"].includes(state.capture)) {
+  if (state.running || ["countdown", "recording", "saving"].includes(state.capture) || editor.dirty) {
     event.preventDefault();
     event.returnValue = "";
   }
@@ -488,7 +513,7 @@ function renderTuningSummary() {
 function perRun() {
   const neutral = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec($("neutral").value.trim());
   return {
-    "style.name": $("style").value, "output.loop": $("opt-loop").checked, "input.flip": $("flip").checked,
+    "style.name": $("style").value, "output.loop": $("opt-loop").checked, "output.interpolation": $("interp").value, "input.flip": $("flip").checked,
     "expressions.enabled": $("rare").checked,
     "input.start": $("start").value === "" ? null : Number($("start").value),
     "input.end": $("end").value === "" ? null : Number($("end").value),
@@ -586,13 +611,18 @@ function showRunError(key, params, computeLink) {
   $("run-error").classList.remove("hidden");
   $("run-error-action").classList.toggle("hidden", !computeLink);
 }
+// extra.reuse: {configFile, video, modelDir, start} of an earlier result ("Apply mapping"): the same
+// source and configuration, so the compute side reuses its tracking.
 async function startRun(extra = {}) {
-  if (locked() || !state.videoReady || !state.model || state.server !== true || !validate()) return;
-  const opts = runOptions(extra);
+  const reuse = extra.reuse;
+  if (locked() || !state.model || state.server !== true) return;
+  if (!reuse && (!state.videoReady || !validate())) return;
+  const opts = reuse ? { video: reuse.source.file, modelDir: reuse.modelDir, name: extra.name, suffix: true, reuseConfig: reuse.configFile,
+                         preview: !!extra.preview, mapping: extra.mapping } : runOptions(extra);
   const preview = prefs.defaultFor("preview.enabled", opts.preset);
   const mode = prefs.app("compute.mode");
   // Freeze ownership before IPC; completion may arrive before invoke resolves.
-  state.run = { source: state.video, modelDir: state.model.dir, start: Number($("start").value) || 0, started: performance.now(),
+  state.run = { source: reuse ? reuse.source : state.video, modelDir: state.model.dir, start: reuse ? reuse.start : Number($("start").value) || 0, started: performance.now(),
                 stage: "stage.preparing", stages: stageList(mode, preview), status: {}, progress: null, mode };
   state.lastRun = null;
   state.running = true; state.logs = []; setRaw($("log"), ""); $("log-count").textContent = "0";
@@ -605,7 +635,7 @@ async function startRun(extra = {}) {
   updateControls(); updateJobTime(); state.jobTimer = setInterval(updateJobTime, 1000);
   try {
     const { name } = await api.run(opts);
-    if (name !== opts.name && state.run) { $("name").value = name; benchNote("bench.renamed", { name }); }
+    if (name !== opts.name && state.run && !reuse) { $("name").value = name; benchNote("bench.renamed", { name }); }
   } catch (err) {
     clearInterval(state.jobTimer); state.running = false; state.run = null; $("progress").classList.add("hidden"); updateControls(); fail(err, "status.runFailed");
   }
@@ -616,6 +646,113 @@ $("run-again").addEventListener("click", action(() => {
   if (!state.result) return;
   return startRun({ name: state.result.name, suffix: true });
 }));
+
+// ---------------------------------------------------------------- mapping
+
+function canApplyMapping({ ignoreEditor = false } = {}) {
+  const r = state.result;
+  return !!(r?.configFile && r.motion && state.model?.dir === r.modelDir && state.server === true
+    && !state.running && !state.loading && state.capture === "closed" && (ignoreEditor || !editor.open));
+}
+// "Apply mapping to this result": the same source and configuration with the model's current
+// mapping overrides, under an auto-suffixed name.
+async function applyMapping() {
+  if (!canApplyMapping()) return;
+  const r = state.result;
+  await startRun({ name: `${baseName(r.name)}_map`.slice(0, 80), reuse: reuseOf(r) });
+}
+// "Preview changes" in the mapping editor: the same source and configuration with the draft
+// mapping, into a temporary result that plays right away; Keep makes it a normal result.
+async function previewMapping(draft) {
+  if (!canApplyMapping()) return;
+  const r = state.result;
+  await startRun({ name: `${baseName(r.name)}_preview`.slice(0, 80), reuse: reuseOf(r), preview: true, mapping: draft });
+}
+function baseName(name) { return name.replace(/_(map|preview)(_\d+)?$/, ""); }
+function reuseOf(r) { return { configFile: r.configFile, source: r.source, modelDir: r.modelDir, start: r.start || 0 }; }
+$("open-mapping").addEventListener("click", action(() => state.model && openMapping(state.model)));
+$("apply-mapping").addEventListener("click", action(() => applyMapping()));
+$("preview-keep").addEventListener("click", action(async () => {
+  const r = state.result;
+  if (!r?.preview || locked()) return;
+  const kept = await api.keepPreview(r.dir);
+  const oldKey = `gen:${r.motion.file}`;
+  const entry = state.entries.find((e) => e.key === oldKey);
+  state.result = { ...r, dir: kept.dir, motion: kept.motion, signals: kept.signals, preview: false };
+  if (entry) Object.assign(entry, { key: `gen:${kept.motion.file}`, ...kept.motion });
+  if (state.entry === entry) renderMotionList();
+  state.previousResult = null;
+  showResultHeader();
+  status("status.previewKept", { name: r.name }, "success");
+}));
+$("preview-discard").addEventListener("click", action(async () => {
+  const r = state.result;
+  if (!r?.preview || locked()) return;
+  await api.discardPreview(r.dir);
+  const key = `gen:${r.motion.file}`;
+  state.entries = state.entries.filter((e) => e.key !== key);
+  const prev = state.previousResult;
+  state.result = prev; state.previousResult = null;
+  if (prev) {
+    showReport(prev.report); showResultHeader();
+    await selectMotion(`gen:${prev.motion.file}`);
+  } else { $("result").classList.add("hidden"); await selectMotion(""); }
+  updateControls();
+  status("status.previewDiscarded", null, "idle");
+}));
+function showResultHeader() {
+  const preview = !!state.result?.preview;
+  setRaw($("result-name"), state.result?.name || "");
+  setText($("result-badge"), preview ? "result.previewBadge" : "result.done");
+  $("result-badge").classList.toggle("preview", preview);
+  $("preview-bar").classList.toggle("hidden", !preview);
+  for (const id of ["install", "apply-mapping", "use-settings", "run-again"]) $(id).closest(".result-actions").classList.toggle("hidden", preview && id !== "install");
+  $("install").classList.toggle("hidden", preview);
+}
+
+// ---------------------------------------------------------------- motion editor
+
+function inModelFolder(file) { return !!state.model && file.startsWith(`${state.model.dir}/`); }
+async function openEditor(entry) {
+  if (!entry?.file || locked()) return;
+  if (state.entry?.key !== entry.key) await selectMotion(entry.key);
+  if (state.entry?.key !== entry.key) return;
+  $("video").pause(); state.playing = false; playLabel(false);
+  state.loading = true; updateControls();
+  try {
+    await editor.openMotion({ file: entry.file, name: entry.name, entryKey: entry.key, video: synced() ? entry.video : null,
+                              inModel: inModelFolder(entry.file) });
+  } finally { state.loading = false; updateControls(); }
+  $("graph").focus({ preventScroll: true });
+}
+// Saved edits become a playable entry; a copy in the model folder refreshes its motion list.
+async function editorSaved(saved, previous) {
+  if (inModelFolder(saved.file)) setModelMotions(await api.listMotions(state.model.dir));
+  if (saved.mode === "model") return;
+  const old = state.entries.find((e) => e.key === previous.entryKey);
+  const key = inModelFolder(saved.file) ? `model:${saved.file}` : `edit:${saved.file}`;
+  let entry = state.entries.find((e) => e.key === key);
+  if (!entry) {
+    entry = { key, name: saved.name, label: saved.name, file: saved.file, url: saved.url, edited: true, video: old?.video || null };
+    state.entries = [entry, ...state.entries];
+  }
+  entry.url = saved.url || entry.url;
+  entry.parsed = state.entry?.parsed || null;
+  if (old && old !== entry && saved.mode === "new") old.parsed = null;  // re-read the untouched original next time
+  state.entry = entry;
+  editor.source.entryKey = key;
+  renderMotionList();
+}
+// Closing drops the preview; the motion is read again from its file.
+async function editorClosed() {
+  const key = state.entry?.key || "";
+  if (state.entry) state.entry.parsed = null;
+  updateControls();
+  await selectMotion(key).catch((err) => fail(err));
+}
+$("edit-motion").addEventListener("click", action(() => openEditor(state.entry)));
+$("result-edit").addEventListener("click", action(() => state.result && openEditor(state.entries.find((e) => e.key === `gen:${state.result.motion.file}`))));
+$("ed-defaults").addEventListener("click", () => openSettings("generation", "output.interpolation"));
 $("run-error-action").addEventListener("click", () => openSettings("compute"));
 $("cancel").addEventListener("click", action(async () => {
   if (!state.running || state.run?.cancelling) return;
@@ -648,11 +785,20 @@ api.onDone(action(async (result) => {
     else { status("status.generationFailed", { code: result.code }, "error"); if (detail) showRunError("run.failed", { detail }); }
     return;
   }
-  state.result = { ...result, modelDir: job.modelDir, source: job.source };
+  // A preview stands in for the result it came from until it is kept or discarded; a newer
+  // preview replaces an older one, which is deleted.
+  const superseded = result.preview && state.result?.preview ? state.result : null;
+  if (result.preview) state.previousResult = superseded ? state.previousResult : state.result;
+  else if (state.result?.preview) state.previousResult = null;
+  if (superseded) {
+    state.entries = state.entries.filter((e) => e.key !== `gen:${superseded.motion.file}`);
+    api.discardPreview(superseded.dir).catch(() => {});
+  }
+  state.result = { ...result, modelDir: job.modelDir, source: job.source, start: job.start };
   const entry = { key: `gen:${result.motion.file}`, ...result.motion, generated: true, video: { file: job.source.file, start: job.start } };
   state.entries = [entry, ...state.entries.filter((e) => e.key !== entry.key)];
   showReport(result.report);
-  setRaw($("result-name"), result.name);
+  showResultHeader();
   if (result.installed) { setText($("install-status"), "result.installed"); $("install-status").title = result.installed; setModelMotions(await api.listMotions(job.modelDir)); }
   else setText($("install-status"), "result.installHint");
   $("result").classList.remove("hidden"); $("log-panel").open = false;
@@ -691,12 +837,14 @@ function showReport(report) {
   const format = (value, digits = 1) => Number.isFinite(value) ? value.toFixed(digits) : "—";
   const blinks = Object.values(report.blinks || {});
   // Each value is a raw string or a [key, params] message.
+  const mappingChanges = (m) => (m ? Object.keys(m.input_curves || {}).length + (m.bridge || []).length + (m.entries || []).length : 0);
   const rows = [
     ["report.face", `${format(report.face_rate * 100)}%`],
     ["report.blinks", blinks.length ? ["report.blinkCount", { count: Math.max(...blinks) }] : "—"],
     ["report.rare", report.rare_seconds ? ["report.rareSeconds", { cheek: format(report.rare_seconds.CheekPuff), tongue: format(report.rare_seconds.TongueOut) }] : ["report.off"]],
     ["report.neutral", report.neutral_window_s ? ["report.neutralRange", { from: format(report.neutral_window_s[0], 2), to: format(report.neutral_window_s[1], 2) }] : "—"],
     ["report.curves", report.curves != null ? ["report.curveCount", { count: report.curves }] : "—"],
+    ["report.mappingChanges", mappingChanges(report.mapping_overrides) ? ["report.mappingChangeCount", { count: mappingChanges(report.mapping_overrides) }] : ["report.mappingBase"]],
   ];
   const dl = document.createElement("dl");
   for (const [key, value] of rows) {
@@ -788,7 +936,7 @@ prefs.on((changed) => {
   const app = changed.all ? null : changed.app || [];
   const config = changed.all ? null : changed.config || [];
   const touched = (keys, test) => keys === null || keys.some(test);
-  if (touched(app, (k) => k === "general.language")) setLanguage(prefs.snap.language);
+  if (touched(app, (k) => k === "general.language")) { setLanguage(prefs.snap.language); refreshMapping(); }
   if (touched(app, (k) => k.startsWith("viewer."))) {
     if (app === null || app.includes("viewer.physics")) { $("physics").checked = prefs.app("viewer.physics"); viewer.setPhysics($("physics").checked); }
     if (app === null || app.includes("viewer.loop")) $("loop").checked = prefs.app("viewer.loop");
@@ -813,7 +961,16 @@ prefs.on((changed) => {
   const init = await api.init();
   prefs.replace(init.settings, { init: true });
   setLanguage(prefs.snap.language);
-  initSettings({ benchCommand, onCheck: applyCheck, cameras });
+  initSettings({ benchCommand, onCheck: applyCheck, cameras, openMapping: () => state.model && openMapping(state.model), hasModel: () => !!state.model });
+  initMapping({
+    canApply: () => (canApplyMapping({ ignoreEditor: false }) && !state.result.preview ? { name: state.result.name } : null),
+    canPreview: () => (canApplyMapping() ? { name: state.result.name } : null),
+    preview: (draft) => previewMapping(draft),
+    signalsFile: () => (state.result && state.result.modelDir === state.model?.dir ? state.result.signals : null),
+    apply: () => applyMapping(),
+    openCompute: () => openSettings("compute"),
+    remote: () => prefs.app("compute.mode") === "remote",
+  });
   api.settings.onOpen((section) => openSettings(section));
   applyViewerDefaults();
   $("cam-mic").checked = prefs.app("camera.audio");

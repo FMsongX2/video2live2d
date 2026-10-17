@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import json
 import pathlib
@@ -142,21 +141,25 @@ def cutoff(filtering, group: str, fps: float) -> float:
     return min(c, 0.45 * fps) if c >= fps / 2 > base else c
 
 
-def solve(signals: Signals, model: Model, cfg: Config,
-          rare_scores: dict[str, np.ndarray] | None = None) -> tuple[dict[str, np.ndarray], dict]:
-    """Returns Live2D parameter curves on the output grid and a record of every decision."""
+def solve(signals: Signals, model: Model, cfg: Config, rare_scores: dict[str, np.ndarray] | None = None,
+          overrides: dict | None = None, dump: bool = False) -> tuple[dict[str, np.ndarray], dict]:
+    """Returns Live2D parameter curves on the output grid and a record of every decision.
+    overrides: a v2l.mapping object (input curves, bridge changes, entries; docs/motion-editing.md).
+    dump: also put the tracking inputs and bridge outputs on the grid into info["signals"]."""
     info: dict = {}
     fps = cfg.output.fps
     f = features(signals, rare_scores)
     x, cal = calibrate(f, signals.t, cfg.calibration, cfg.expressions)
     x = scale(x, cfg.intensity)
-    grid, t, present = temporal.resample(x, signals.t, fps, max_gap=cfg.gaps.max_gap, ramp=cfg.gaps.ramp)
+    raw, t, present = temporal.resample(x, signals.t, fps, max_gap=cfg.gaps.max_gap, ramp=cfg.gaps.ramp)
     n = len(t)
-    bridge = Bridge.load(cfg.bridge.preset)
-    bridged, missing = bridge.evaluate(grid)
+    grid = mapping.apply_input_curves(overrides, raw)
+    bridge = Bridge.load(cfg.bridge.preset, (overrides or {}).get("bridge"))
+    bridged, missing = bridge.evaluate(grid, fps)
     signals_for_map = {**grid, **bridged}
 
-    entries, notes = mapping.resolve(mapping.entries_for(model), model.probe)
+    entries, notes, map_warnings = mapping.effective(model, overrides, cfg.bridge.preset)
+    own_cutoff = {e.output: e.cutoff for e in entries if e.enabled}  # the last entry for a parameter wins
     breath_period = cfg.output.breath_period
     if cfg.output.loop and n > 1:
         cycles = max(1, round((n - 1) / fps / breath_period))
@@ -171,7 +174,10 @@ def solve(signals: Signals, model: Model, cfg: Config,
 
     for pid, v in params.items():
         group = filter_group(pid)
-        if group is not None:
+        hz = own_cutoff.get(pid)
+        if hz is not None:
+            v = temporal.denoise(v, hz, fps, despike=cfg.filtering.despike)
+        elif group is not None:
             v = temporal.denoise(v, cutoff(cfg.filtering, group, fps), fps, despike=cfg.filtering.despike)
         if cfg.output.loop:
             v = temporal.make_loop(v, fps, blend=cfg.output.loop_blend)
@@ -180,13 +186,29 @@ def solve(signals: Signals, model: Model, cfg: Config,
 
     info.update(
         calibration=cal, bridge=bridge.name, bridge_inputs_without_signal=missing, mapping_notes=notes,
-        mapping=[dataclasses.asdict(e) for e in entries], frames=n, duration=float(t[-1]) if n else 0.0,
+        mapping=[mapping.entry_json(e) for e in entries], mapping_warnings=map_warnings,
+        frames=n, duration=float(t[-1]) if n else 0.0,
         presence_min=float(present.min()) if n else 0.0,
         # Seconds with the zero-shot cheek puff / tongue out above half (None: stage not run).
-        rare_seconds={k: float((grid[k] > 0.5).sum() / fps) for k in ("CheekPuff", "TongueOut")}
+        rare_seconds={k: float((raw[k] > 0.5).sum() / fps) for k in ("CheekPuff", "TongueOut")}
         if rare_scores is not None else None,
     )
+    if dump:
+        info["signals"] = signals_json(raw, grid, bridged, fps, (overrides or {}).get("input_curves") or {})
     return params, info
+
+
+def signals_json(raw: dict, curved: dict, bridged: dict, fps: float, input_curves: dict) -> dict:
+    """The <name>.signals.json object: tracking inputs after input curves ("inputs"), the values
+    before the curve for the inputs that have one ("inputs_raw"), and the bridge outputs, one value
+    per output frame rounded to 4 decimals (null where nothing was tracked)."""
+    def series(v):
+        return [round(float(a), 4) if np.isfinite(a) else None for a in v]
+    n = len(next(iter(raw.values()))) if raw else 0
+    return {"fps": fps, "duration": (n - 1) / fps if n else 0.0,
+            "inputs": {k: series(v) for k, v in curved.items()},
+            "inputs_raw": {k: series(raw[k]) for k in sorted(set(input_curves) & set(raw))},
+            "bridge": {k: series(v) for k, v in bridged.items()}}
 
 
 def quality_report(signals: Signals, params: dict[str, np.ndarray], model: Model, info: dict, fps: float) -> dict:
@@ -228,10 +250,13 @@ def quality_report(signals: Signals, params: dict[str, np.ndarray], model: Model
 
 
 def run(video: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out_dir: str | pathlib.Path,
-        cfg: Config, install: bool = True, log=print, event=None) -> dict:
+        cfg: Config, install: bool = True, log=print, event=None, mapping_overrides: dict | None = None,
+        dump_signals: bool = False) -> dict:
     """Writes <out_dir>/<name>.motion3.json, .report.json, and (cfg.preview.enabled) .preview.mp4;
     with install the motion is also copied into the model folder (VTube Studio lists it as an
-    animation). event receives {"event": "stage", "stage": s} as each of STAGES begins and
+    animation). mapping_overrides: a v2l.mapping object (checked against the model before tracking).
+    dump_signals: also write <name>.signals.json (tracking inputs and bridge outputs per frame).
+    event receives {"event": "stage", "stage": s} as each of STAGES begins and
     {"event": "progress", "stage": s, "done": d, "total": t} while tracking, scoring expressions
     and rendering the preview."""
     from .render import render_motion
@@ -244,10 +269,12 @@ def run(video: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out
     video = pathlib.Path(video).expanduser().resolve()
     if not video.is_file():
         raise FileNotFoundError(f"video not found: {video}")
-    Bridge.load(cfg.bridge.preset)  # fail before tracking on a bad preset
+    Bridge.load(cfg.bridge.preset, (mapping_overrides or {}).get("bridge"))  # fail before tracking
     out_dir = pathlib.Path(out_dir).expanduser().resolve()
     stage("probe")
     model = prepare_model(model_dir, log=log)
+    if mapping_overrides:
+        mapping.effective(model, mapping_overrides, cfg.bridge.preset)  # fail before tracking
     out_dir.mkdir(parents=True, exist_ok=True)
     stage("tracking")
     signals = get_signals(video, cfg, log=log, progress=_progress(event, "tracking"))
@@ -255,11 +282,14 @@ def run(video: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out
     rare_scores = get_rare(video, signals, cfg, log=log, progress=_progress(event, "expressions"))
     stage("solving")
     log("solving")
-    params, info = solve(signals, model, cfg, rare_scores)
+    params, info = solve(signals, model, cfg, rare_scores, mapping_overrides, dump=dump_signals)
+    if dump_signals:
+        (out_dir / f"{name}.signals.json").write_text(json.dumps(info.pop("signals"), separators=(",", ":")))
     stage("writing")
     fps, preview = cfg.output.fps, cfg.preview.enabled
     motion = motion3.build(params, model.ranges, fps, loop=cfg.output.loop, fade_in=cfg.output.fade,
-                           fade_out=cfg.output.fade, tolerance=cfg.output.tolerance)
+                           fade_out=cfg.output.fade, tolerance=cfg.output.tolerance,
+                           interpolation=cfg.output.interpolation)
     errs = motion3.validate(motion, model.ranges)
     if errs:
         raise RuntimeError("generated motion is invalid: " + "; ".join(errs))
@@ -274,7 +304,8 @@ def run(video: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out
                   curves=motion["Meta"]["CurveCount"], points=motion["Meta"]["TotalPointCount"],
                   mapping_notes=info["mapping_notes"], bridge=info["bridge"], rare_seconds=info["rare_seconds"],
                   bridge_inputs_without_signal=info["bridge_inputs_without_signal"], calibration=info["calibration"],
-                  config=to_dict(cfg))
+                  mapping=info["mapping"], mapping_warnings=info["mapping_warnings"],
+                  mapping_overrides=mapping_overrides, config=to_dict(cfg))
     try:
         if preview:
             stage("preview")

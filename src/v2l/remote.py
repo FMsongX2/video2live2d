@@ -7,9 +7,16 @@ Standard library only, so it runs from any Python 3.11+ without the heavy depend
                                                      track + solve + preview on the server;
                                                      results land in --out/NAME, the motion is
                                                      also copied into the local model folder
-                                                     (--no-install: not); --config files are
-                                                     uploaded; other options go to `v2l run`
+                                                     (--no-install: not); --config and --mapping
+                                                     files are uploaded; other options go to
+                                                     `v2l run`
   v2l-remote probe --model DIR [--details] [--json]  probe a local model on the server
+  v2l-remote mapping show --model DIR [--mapping FILE] [--json]
+                                                     effective mapping of a local model, computed
+                                                     on the server (the model and the mapping file
+                                                     are uploaded); `mapping inputs` and `mapping
+                                                     validate FILE` without --model run here
+  v2l-remote bridge show|check|validate ...          `v2l bridge ...`, run here (no host needed)
   v2l-remote test                                    run the test suite on the server
   v2l-remote regress                                 run regression/videos on the server with the
                                                      model in V2L_REGRESS_MODEL
@@ -37,6 +44,7 @@ import time
 from . import cli
 from .cli import UsageError, _Parser
 from .config import ConfigError, to_dict
+from .mapping import MappingError
 
 HOST = os.environ.get("V2L_HOST", "")
 RDIR = os.environ.get("V2L_DIR", "v2l")
@@ -130,12 +138,13 @@ def run(a: argparse.Namespace, passthrough: list[str]) -> int:
     say = _say(a)
     ns, cfg = resolve_settings(a, passthrough)
     video, model = cli.check_inputs(a.video, a.model, cfg)
+    overrides = cli.load_mapping(ns.mapping, cfg.bridge.preset)  # checked here, before any upload
     out = pathlib.Path(a.out).expanduser().resolve() / a.name
-    files = cli.planned_files(out, a.name, cfg)
+    files = cli.planned_files(out, a.name, cfg, ns.dump_signals)
     installed = None if a.no_install else model / f"{a.name}.motion3.json"
     if ns.dry_run:
         res = {"ok": True, "dry_run": True, "name": a.name, "out_dir": str(out), "files": files,
-               "installed": str(installed) if installed else None, "settings": to_dict(cfg)}
+               "installed": str(installed) if installed else None, "settings": to_dict(cfg), "mapping": overrides}
         print(json.dumps(res, ensure_ascii=False, indent=None if a.json else 1), flush=True)
         return 0
     rid = f"{re.sub(r'[^A-Za-z0-9_-]', '_', a.name)}-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
@@ -153,15 +162,16 @@ def run(a: argparse.Namespace, passthrough: list[str]) -> int:
     # One file carries the effective settings (preset, --config files, shortcut flags and --set
     # already applied); it is unique per run and removed after it.
     rconfig = f"inputs/configs/{rid}.json"
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump(to_dict(cfg), f)
-    try:
-        rsync(f.name, f"{HOST}:{RDIR}/{rconfig}")
-    finally:
-        os.unlink(f.name)
+    _upload_json(to_dict(cfg), rconfig)
     rout = f"outputs/{rid}"
     cmd = [".venv/bin/v2l", "run", rvideo, "--model", rmodel, "--name", a.name, "--out", rout, "--no-install",
            "--config", rconfig]
+    if overrides is not None:  # like the settings: one file per run, removed after it
+        rmap = f"inputs/configs/{rid}-mapping.json"
+        _upload_json(overrides, rmap)
+        cmd += ["--mapping", rmap]
+    if ns.dump_signals:
+        cmd.append("--dump-signals")
     if a.json:
         cmd.append("--json")
     if a.progress:
@@ -192,8 +202,9 @@ def run(a: argparse.Namespace, passthrough: list[str]) -> int:
         say(f"installed {installed}")
     say(f"results in {out}")
     if a.json:
-        if not result["files"].get("preview"):
-            files["preview"] = None
+        for k in ("preview", "signals"):
+            if not result["files"].get(k):
+                files[k] = None
         print(json.dumps({"ok": True, "name": a.name, "out_dir": str(out), "files": files,
                           "installed": str(installed) if installed else None,
                           "summary": result.get("summary")}, ensure_ascii=False), flush=True)
@@ -228,6 +239,64 @@ def probe(a: argparse.Namespace, passthrough: list[str]) -> int:
                                  capture=False, rid=rid)
     if cancelled:
         raise Cancelled("cancelled")
+    return code
+
+
+def _upload_json(data, rpath: str) -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(data, f)
+    try:
+        rsync(f.name, f"{HOST}:{RDIR}/{rpath}")
+    finally:
+        os.unlink(f.name)
+
+
+def mapping(a: argparse.Namespace, passthrough: list[str]) -> int:
+    """`v2l mapping show/validate` with a model run on the server; the rest runs here."""
+    local = ["mapping", a.action, *passthrough]
+    ns = cli._parser().parse_args(local)  # usage errors before any upload
+    model_arg = getattr(ns, "model", None)
+    if ns.action == "inputs" or model_arg is None:
+        return cli.main(local)
+    model = pathlib.Path(model_arg).expanduser().resolve()
+    if not model.is_dir():
+        raise InputError(f"model folder not found: {model}")
+    mapping_file = ns.mapping if ns.action == "show" else ns.file
+    data = cli.load_mapping(mapping_file, ns.bridge) if ns.action == "show" else None
+    if ns.action == "validate":
+        from .mapping import load_overrides
+
+        data = load_overrides(mapping_file)
+    if pathlib.Path(ns.bridge).expanduser().is_file():
+        raise InputError("--bridge FILE is not supported here; use a built-in preset name")
+    push_code()
+    rmodel = _upload_model(model)
+    rid = f"mapping-{secrets.token_hex(3)}"
+    cmd = [".venv/bin/v2l", "mapping", ns.action]
+    if ns.action == "validate":
+        cmd.append(f"inputs/configs/{rid}.json")
+    cmd += ["--model", rmodel, "--bridge", ns.bridge]
+    if data is not None:
+        _upload_json(data, f"inputs/configs/{rid}.json")
+        if ns.action == "show":
+            cmd += ["--mapping", f"inputs/configs/{rid}.json"]
+    if ns.json:
+        cmd.append("--json")
+    code, stdout, cancelled = _remote(f"{shlex.join(cmd)}; code=$?; rm -f inputs/configs/{rid}.json; exit $code",
+                                      capture=ns.json, rid=rid)
+    if cancelled:
+        raise Cancelled("cancelled")
+    if code == 255:
+        raise Unreachable(f"lost the connection to {HOST}")
+    if ns.json:
+        try:
+            res = json.loads(stdout.strip().splitlines()[-1])
+        except (IndexError, json.JSONDecodeError):
+            raise RemoteError(f"the server returned no result (exit {code})") from None
+        if res.get("ok") and ns.action == "show":  # local paths for the caller
+            res["model_dir"] = str(model)
+            res["mapping_file"] = str(pathlib.Path(mapping_file).expanduser().resolve()) if mapping_file else None
+        print(json.dumps(res, ensure_ascii=False), flush=True)
     return code
 
 
@@ -269,6 +338,11 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--progress", choices=("text", "json"), help="passed to the server; events stream on stderr")
     p = sub.add_parser("probe", help="probe a local model on the server; other options are passed to `v2l probe`")
     p.add_argument("--model", required=True)
+    mp = sub.add_parser("mapping", help="show (on the server, with --model) | inputs | validate FILE [--model DIR]; "
+                                        "options as for `v2l mapping`")
+    mp.add_argument("action", choices=("show", "inputs", "validate"))
+    sub.add_parser("bridge", help="show | check --func EXPR | validate FILE, run locally (options as for "
+                                  "`v2l bridge`)", add_help=False)
     as_json = "--json" in argv
 
     def fail(kind: str, message: str, code: int) -> int:
@@ -280,8 +354,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         a, rest = ap.parse_known_args(argv)
-        if a.cmd not in ("run", "probe") and rest:
+        if a.cmd not in ("run", "probe", "mapping", "bridge") and rest:
             ap.error(f"unexpected arguments: {rest}")
+        if a.cmd == "bridge":
+            return cli.main(["bridge", *rest])  # formulas and presets are read here
+        if a.cmd == "mapping" and (a.action == "inputs" or "--model" not in rest):
+            return mapping(a, rest)  # local: no compute host needed
         if a.cmd == "version":
             return cli.main(["version", *(["--json"] if a.json else [])])
         if not HOST:
@@ -311,6 +389,8 @@ def main(argv: list[str] | None = None) -> int:
             return code
         if a.cmd == "probe":
             return probe(a, rest)
+        if a.cmd == "mapping":
+            return mapping(a, rest)
         return run(a, rest)
     except UsageError as e:
         if not as_json:
@@ -330,6 +410,8 @@ def main(argv: list[str] | None = None) -> int:
         return fail("remote", f"{' '.join(map(str, e.cmd[:3]))}... failed ({e.returncode})", e.returncode or 1)
     except ConfigError as e:
         return fail("config", str(e), 2)
+    except MappingError as e:
+        return fail("invalid", str(e), 2)
     except (FileNotFoundError, NotADirectoryError) as e:
         return fail("input", str(e), 2)
     except KeyboardInterrupt:

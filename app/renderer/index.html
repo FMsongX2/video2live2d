@@ -23,7 +23,7 @@
   <section class="viewer-pane" data-i18n-aria-label="viewer.label" aria-label="Live2D preview">
     <header class="model-header">
       <div class="model-title"><h1 id="model-name" data-i18n="model.preparing">Preparing model</h1><span id="model-info"></span></div>
-      <button id="open-model" data-i18n="model.change">Change model</button>
+      <div class="model-actions"><button id="open-mapping" class="with-icon" data-i18n-title="mapping.openTitle" title="Which tracked input drives each parameter" disabled><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 5H3"/><path d="M12 19H3"/><path d="M14 3v4"/><path d="M16 17v4"/><path d="M21 12h-9"/><path d="M21 19h-5"/><path d="M21 5h-7"/><path d="M8 10v4"/><path d="M8 12H3"/></svg><span data-i18n="mapping.open">Mapping</span></button><button id="open-model" data-i18n="model.change">Change model</button></div>
     </header>
     <div class="stage-shell">
       <div id="stage"><div id="stage-hint" role="status" data-i18n="stage.loading">Loading model…</div></div>
@@ -40,11 +40,78 @@
         <p class="hint" data-i18n="view.tex4kHint">Only the preview is downscaled. The original model is not changed.</p>
       </div></details>
     </div>
+    <section id="editor-dock" class="editor-dock hidden" aria-labelledby="dock-title">
+      <div id="dock-resize" class="dock-resize" role="separator" aria-orientation="horizontal" tabindex="0" data-i18n-aria-label="editor.resize" aria-label="Resize the editor" aria-valuemin="230"></div>
+      <header class="dock-bar">
+        <div class="dock-title"><h2 id="dock-title" data-i18n="editor.title">Edit motion</h2><span id="dock-dirty" class="dirty-mark" role="status" data-i18n="editor.saved">Saved</span></div>
+        <button id="ed-play" class="small" data-i18n-title="transport.playTitle" title="Play / Pause (Space)" data-i18n="transport.play">Play</button>
+        <span id="ed-time" class="ed-time" aria-live="off"></span>
+        <div class="tool-group" role="group" data-i18n-aria-label="editor.history" aria-label="History">
+          <button id="ed-undo" class="icon tool" data-icon="undo" data-i18n-title="editor.undo" title="Undo (⌘Z)" data-i18n-aria-label="editor.undo" aria-label="Undo (⌘Z)"></button>
+          <button id="ed-redo" class="icon tool" data-icon="redo" data-i18n-title="editor.redo" title="Redo (⇧⌘Z)" data-i18n-aria-label="editor.redo" aria-label="Redo (⇧⌘Z)"></button>
+        </div>
+        <div class="tool-group seg interp" role="group" data-i18n-aria-label="editor.interpolation" aria-label="Interpolation of the selection">
+          <button id="ed-type-linear" class="tool labeled" data-icon="linear" aria-pressed="false" data-i18n-title="editor.type.linearTitle" title="Linear (1)"><span data-i18n="editor.type.linear">Linear</span></button>
+          <button id="ed-type-bezier" class="tool labeled" data-icon="bezier" aria-pressed="false" data-i18n-title="editor.type.bezierTitle" title="Bezier (2)"><span data-i18n="editor.type.bezier">Bezier</span></button>
+          <button id="ed-type-stepped" class="tool labeled" data-icon="stepped" aria-pressed="false" data-i18n-title="editor.type.steppedTitle" title="Stepped (3)"><span data-i18n="editor.type.stepped">Stepped</span></button>
+          <button id="ed-type-inverse_stepped" class="tool labeled" data-icon="inverse_stepped" aria-pressed="false" data-i18n-title="editor.type.inverse_steppedTitle" title="Inverse stepped (4)"><span data-i18n="editor.type.inverse_stepped">Inverse stepped</span></button>
+        </div>
+        <div class="tool-group" role="group" data-i18n-aria-label="editor.tangents" aria-label="Tangents">
+          <button id="ed-auto" class="small" data-i18n="editor.auto" data-i18n-title="editor.autoTitle" title="Smooth handles from the neighbouring keys">Auto</button>
+          <button id="ed-flat" class="small" data-i18n="editor.flatten" data-i18n-title="editor.flattenTitle" title="Horizontal handles: ease in and out">Flatten</button>
+        </div>
+        <div class="tool-group" role="group" data-i18n-aria-label="editor.keys" aria-label="Keys">
+          <button id="ed-insert" class="icon tool" data-icon="plus" data-i18n-title="editor.insert" title="Insert key at the playhead (K)" data-i18n-aria-label="editor.insert" aria-label="Insert key at the playhead (K)"></button>
+          <button id="ed-delete" class="icon tool" data-icon="trash" data-i18n-title="editor.delete" title="Delete keys (Delete)" data-i18n-aria-label="editor.delete" aria-label="Delete keys (Delete)"></button>
+        </div>
+        <div class="tool-group" role="group" data-i18n-aria-label="editor.view" aria-label="View">
+          <button id="ed-snap" class="icon tool toggle" data-icon="magnet" aria-pressed="true" data-i18n-title="editor.snap" title="Snap to frames (S)" data-i18n-aria-label="editor.snap" aria-label="Snap to frames (S)"></button>
+          <button id="ed-normalize" class="tool toggle small" aria-pressed="false" data-i18n="editor.normalize" data-i18n-title="editor.normalizeTitle" title="Show every curve over its parameter's range">0–100%</button>
+          <button id="ed-fit" class="icon tool" data-icon="fit" data-i18n-title="editor.fit" title="Fit to view (F)" data-i18n-aria-label="editor.fit" aria-label="Fit to view (F)"></button>
+          <button id="ed-help" class="icon tool" data-icon="help" popovertarget="editor-help" data-i18n-title="editor.shortcuts" title="Keyboard and mouse" data-i18n-aria-label="editor.shortcuts" aria-label="Keyboard and mouse"></button>
+        </div>
+        <button id="dock-close" class="small dock-close" data-i18n="editor.close">Close editor</button>
+      </header>
+      <div class="dock-body">
+        <div class="tracks">
+          <input type="search" id="track-search" data-i18n-placeholder="editor.searchTracks" placeholder="Filter parameters" data-i18n-aria-label="editor.searchTracks" aria-label="Filter parameters">
+          <div id="track-list" class="track-list" role="listbox" aria-multiselectable="true" data-i18n-aria-label="editor.tracks" aria-label="Parameters"></div>
+        </div>
+        <div class="graph-wrap">
+          <canvas id="graph" tabindex="0" data-i18n-aria-label="editor.graphLabel" aria-label="Curve graph. Arrow keys move the selected keys, K inserts a key, Delete removes keys." aria-describedby="sel-summary"></canvas>
+          <p id="graph-empty" class="graph-empty" data-i18n="editor.pickTrack">Choose a parameter on the left to show its curve.</p>
+        </div>
+      </div>
+      <div id="editor-help" class="help-popover" popover>
+        <h3 data-i18n="editor.shortcuts">Keyboard and mouse</h3>
+        <dl>
+          <dt data-i18n="help.click.keys">Click, Shift-click</dt><dd data-i18n="help.click">Select a key, add to the selection</dd>
+          <dt data-i18n="help.drag.keys">Drag a key</dt><dd data-i18n="help.drag">Move in time and value (hold Shift to keep one axis)</dd>
+          <dt data-i18n="help.box.keys">Drag empty space</dt><dd data-i18n="help.box">Box-select keys</dd>
+          <dt data-i18n="help.handle.keys">Drag a handle</dt><dd data-i18n="help.handle">Shape a Bezier segment (value only)</dd>
+          <dt data-i18n="help.dbl.keys">Double-click, Alt-double-click</dt><dd data-i18n="help.dbl">Insert a key on the curve, at the pointer</dd>
+          <dt data-i18n="help.ruler.keys">Drag the ruler</dt><dd data-i18n="help.ruler">Move the playhead (the source video follows)</dd>
+          <dt data-i18n="help.wheel.keys">Scroll, Shift-scroll</dt><dd data-i18n="help.wheel">Zoom time, zoom value</dd>
+          <dt data-i18n="help.pan.keys">Alt-drag, middle-drag</dt><dd data-i18n="help.pan">Pan the view</dd>
+          <dt>← →</dt><dd data-i18n="help.arrowsTime">Move keys (or the playhead) by one frame; Shift: 10</dd>
+          <dt>↑ ↓</dt><dd data-i18n="help.arrowsValue">Change values by 1% of the range; Shift: 10%</dd>
+          <dt>K</dt><dd data-i18n="help.insert">Insert keys at the playhead</dd>
+          <dt data-i18n="help.delete.keys">Delete</dt><dd data-i18n="help.delete">Delete the selected keys</dd>
+          <dt>1 2 3 4</dt><dd data-i18n="help.types">Linear, Bezier, Stepped, Inverse stepped</dd>
+          <dt>F, S</dt><dd data-i18n="help.fitSnap">Fit to view, snap to frames</dd>
+          <dt>⌘A</dt><dd data-i18n="help.all">Select every key of the shown curves</dd>
+          <dt>⌘Z, ⇧⌘Z</dt><dd data-i18n="help.undo">Undo, redo</dd>
+          <dt data-i18n="help.space.keys">Space</dt><dd data-i18n="help.space">Play or pause</dd>
+          <dt data-i18n="help.tracks.keys">Parameter list</dt><dd data-i18n="help.tracks">↑ ↓ choose, Shift extends, Space adds, H shows or hides</dd>
+        </dl>
+      </div>
+    </section>
     <footer class="transport">
       <div class="transport-heading"><label for="motion-select" data-i18n="transport.motionPreview">Motion preview</label><span id="sync-state" class="hint" data-i18n="transport.idle">Idle</span></div>
       <div class="playback-row">
         <button id="play" class="play" data-i18n="transport.play" data-i18n-aria-label="transport.playMotion" aria-label="Play motion" data-i18n-title="transport.playTitle" title="Play / Pause (Space)" disabled>Play</button>
         <select id="motion-select" data-i18n-aria-label="transport.motionSelect" aria-label="Motion to play"><option value="" data-i18n="transport.idle">Idle</option></select>
+        <button id="edit-motion" class="with-icon" data-icon="spline" data-i18n-title="editor.editTitle" title="Edit the keys and curves of this motion" disabled><span data-i18n="editor.edit">Edit motion</span></button>
       </div>
       <div class="timeline"><input type="range" id="scrub" data-i18n-aria-label="transport.position" aria-label="Playback position" min="0" max="1000" value="0" disabled><span id="time">0.00 / 0.00 s</span></div>
       <div class="transport-options"><label class="chk"><input type="checkbox" id="loop" checked> <span data-i18n="transport.loop">Loop</span></label><label class="chk"><input type="checkbox" id="sync" checked> <span data-i18n="transport.sync">Sync with source video</span></label><span class="key-hint" data-i18n="transport.keyHint">Space: play</span></div>
@@ -86,6 +153,8 @@
           <label class="field" for="style"><span data-i18n="settings.style">Style</span><select id="style"><option value="cute" data-i18n="settings.styleCute">Cute</option><option value="faithful" data-i18n="settings.styleFaithful">Faithful</option></select></label>
           <p id="style-help" class="hint" data-i18n="settings.styleCuteHelp">Tunes expressions and motion for a cute look.</p>
           <label class="chk option"><input type="checkbox" id="opt-loop"> <span data-i18n="settings.loop">Seamless loop</span></label>
+          <label class="field" for="interp"><span data-i18n="param.output.interpolation.label">Curve interpolation</span><select id="interp" aria-describedby="interp-help"><option value="linear" data-i18n="editor.type.linear">Linear</option><option value="bezier" data-i18n="editor.type.bezier">Bezier</option></select></label>
+          <p id="interp-help" class="hint" data-i18n="bench.interpHelp">Bezier writes fewer, smooth keys that are easier to edit afterwards.</p>
           <details id="advanced" class="advanced"><summary data-i18n="settings.advanced">Trim &amp; expression detection</summary><div class="advanced-body">
             <div class="field"><span data-i18n="settings.range">Range (seconds)</span><div class="pair"><label for="start"><span data-i18n="settings.start">Start</span><input id="start" type="number" min="0" step="0.01" placeholder="0"></label><label for="end"><span data-i18n="settings.end">End</span><input id="end" type="number" min="0" step="0.01" data-i18n-placeholder="settings.endPlaceholder" placeholder="End of video"></label></div></div>
             <label class="field" for="neutral"><span data-i18n="settings.neutral">Neutral face window (start:end)</span><input id="neutral" data-i18n-placeholder="settings.neutralPlaceholder" placeholder="Auto · e.g. 0.3:1.3" aria-describedby="neutral-help"></label>
@@ -103,9 +172,12 @@
         <div id="run-error" class="run-error hidden" role="alert"><p id="run-error-text"></p><button type="button" id="run-error-action" class="hidden" data-i18n="run.openCompute">Open Compute settings</button></div>
       </section>
       <section id="result" class="result hidden" aria-labelledby="result-heading">
-        <div class="section-heading"><h3 id="result-heading" data-i18n="result.heading">Result</h3><span class="result-badge" data-i18n="result.done">Done</span></div>
-        <p id="result-name"></p><div id="result-summary"></div>
+        <div class="section-heading"><h3 id="result-heading" data-i18n="result.heading">Result</h3><span id="result-badge" class="result-badge" data-i18n="result.done">Done</span></div>
+        <p id="result-name"></p>
+        <div id="preview-bar" class="preview-bar hidden" role="group" aria-labelledby="preview-text"><p id="preview-text" data-i18n="result.previewHelp">A preview of the mapping changes. It is not in the output folder yet.</p><div class="inline"><button id="preview-keep" class="primary" data-i18n="result.keep">Keep</button><button id="preview-discard" data-i18n="result.discard">Discard</button></div></div>
+        <div id="result-summary"></div>
         <div class="result-actions"><button id="compare" data-i18n="result.compare">Compare with source</button><button id="install" class="primary" data-i18n="result.install">Save to model folder</button><button id="reveal" data-i18n="result.reveal">Show in Finder</button></div>
+        <div class="result-actions secondary"><button id="result-edit" class="with-icon" data-icon="spline"><span data-i18n="editor.edit">Edit motion</span></button><button id="apply-mapping" class="with-icon" data-icon="sliders" data-i18n-title="result.applyMappingTitle" title="Generate again with the model's current mapping. Tracking is reused, so it is quick."><span data-i18n="result.applyMapping">Apply mapping to this result</span></button></div>
         <div class="result-actions secondary"><button id="use-settings" data-i18n="result.useSettings">Use these settings</button><button id="run-again" data-i18n="result.runAgain">Run again with current settings</button></div>
         <p id="install-status" class="hint" role="status" data-i18n="result.installHint">Check the preview, then save it to the model folder.</p>
       </section>
@@ -117,7 +189,73 @@
       <p id="job-help" class="hint" data-i18n="job.helpIdle">Video analysis runs on the remote server.</p>
     </footer>
   </aside>
+  <aside id="editor-panel" class="bench-pane editor-panel hidden" aria-labelledby="editor-panel-title">
+    <header class="bench-header">
+      <div class="editor-heading"><h2 id="editor-panel-title" data-i18n="editor.title">Edit motion</h2><p id="editor-name" class="editor-name"></p></div>
+      <span id="editor-dirty" class="dirty-mark" data-i18n="editor.saved">Saved</span>
+      <button id="editor-close" class="icon gear" data-icon="close" data-i18n-title="editor.close" title="Close editor" data-i18n-aria-label="editor.close" aria-label="Close editor"></button>
+    </header>
+    <div class="bench-scroll">
+      <section class="ed-section" aria-labelledby="ed-source-heading">
+        <div class="section-heading"><h3 id="ed-source-heading" data-i18n="editor.motion">Motion</h3><span id="editor-counts" class="hint"></span></div>
+        <div id="editor-video" class="editor-video hidden"></div>
+        <p id="editor-file" class="source-name"></p>
+      </section>
+      <section class="ed-section" aria-labelledby="ed-sel-heading">
+        <div class="section-heading"><h3 id="ed-sel-heading" data-i18n="editor.selection">Selection</h3></div>
+        <p id="sel-summary" class="hint" role="status" data-i18n="editor.selNone">No parameter selected</p>
+        <div class="pair"><label for="key-time"><span data-i18n="editor.keyTime">Key time (s)</span><input id="key-time" type="number" step="any" min="0" disabled></label><label for="key-value"><span data-i18n="editor.keyValue">Key value</span><input id="key-value" type="number" step="any" disabled></label></div>
+        <div class="pair"><label for="handle-in"><span data-i18n="editor.handleIn">Handle before (value)</span><input id="handle-in" type="number" step="any" disabled></label><label for="handle-out"><span data-i18n="editor.handleOut">Handle after (value)</span><input id="handle-out" type="number" step="any" disabled></label></div>
+      </section>
+      <section class="ed-section" aria-labelledby="ed-refit-heading">
+        <div class="section-heading"><h3 id="ed-refit-heading" data-i18n="editor.refit">Refit curves</h3></div>
+        <p class="hint" data-i18n="editor.refitHelp">Replaces the keys of the selected parameters with a fitted curve. A larger tolerance keeps fewer keys.</p>
+        <div class="field"><label for="refit-tol" data-i18n="editor.tolerance">Tolerance (fraction of the range)</label><div class="slider"><input type="range" id="refit-tol" min="0.001" max="0.1" step="0.001" value="0.01"><input type="number" id="refit-tol-num" class="num" min="0.001" max="0.2" step="0.001" value="0.01" data-i18n-aria-label="editor.tolerance" aria-label="Tolerance"></div></div>
+        <div class="radios" role="radiogroup" data-i18n-aria-label="editor.refitType" aria-label="Fitted segments"><label class="radio"><input type="radio" name="refit-type" id="refit-bezier" value="bezier" checked> <span data-i18n="editor.type.bezier">Bezier</span></label><label class="radio"><input type="radio" name="refit-type" id="refit-linear" value="linear"> <span data-i18n="editor.type.linear">Linear</span></label></div>
+        <div class="inline ed-actions"><button id="refit" data-i18n="editor.refitApply">Refit selected curves</button></div>
+        <p id="refit-note" class="hint" role="status"></p>
+      </section>
+      <section class="ed-section" aria-labelledby="ed-values-heading">
+        <div class="section-heading"><h3 id="ed-values-heading" data-i18n="editor.values">Values</h3></div>
+        <div class="ed-grid">
+          <label for="scale-factor"><span data-i18n="editor.scale">Scale</span><input id="scale-factor" type="number" step="0.05" value="1"></label>
+          <label for="scale-pivot"><span data-i18n="editor.pivot">Around</span><select id="scale-pivot"><option value="zero" data-i18n="editor.pivot.zero">Zero</option><option value="first" data-i18n="editor.pivot.first">First key</option><option value="mean" data-i18n="editor.pivot.mean">Average</option></select></label>
+          <button id="scale-apply" data-i18n="editor.apply">Apply</button>
+          <label for="offset-delta"><span data-i18n="editor.offset">Offset</span><input id="offset-delta" type="number" step="any" value="0"></label>
+          <span></span>
+          <button id="offset-apply" data-i18n="editor.apply">Apply</button>
+        </div>
+      </section>
+      <section class="ed-section" aria-labelledby="ed-meta-heading">
+        <div class="section-heading"><h3 id="ed-meta-heading" data-i18n="editor.timing">Timing</h3><button id="ed-defaults" class="link" data-i18n="editor.defaultsLink">Defaults for new motions</button></div>
+        <div class="ed-grid four">
+          <label for="meta-duration"><span data-i18n="editor.duration">Duration (s)</span><input id="meta-duration" type="number" step="any" min="0.01"></label>
+          <label for="meta-fps"><span data-i18n="editor.fps">Frame rate</span><input id="meta-fps" type="number" step="any" min="1"></label>
+          <label for="meta-fade-in"><span data-i18n="editor.fadeIn">Fade in (s)</span><input id="meta-fade-in" type="number" step="0.05" min="0"></label>
+          <label for="meta-fade-out"><span data-i18n="editor.fadeOut">Fade out (s)</span><input id="meta-fade-out" type="number" step="0.05" min="0"></label>
+        </div>
+        <label class="chk option"><input type="checkbox" id="meta-loop"> <span data-i18n="editor.loop">Loop</span></label>
+        <div class="ed-grid">
+          <label for="trim-from"><span data-i18n="editor.trimFrom">Keep from (s)</span><input id="trim-from" type="number" step="any" min="0" value="0"></label>
+          <label for="trim-to"><span data-i18n="editor.trimTo">to (s)</span><input id="trim-to" type="number" step="any" min="0"></label>
+          <button id="trim-apply" data-i18n="editor.trim">Trim</button>
+          <label for="retime-factor"><span data-i18n="editor.retime">Speed factor</span><input id="retime-factor" type="number" step="0.05" min="0.05" value="1"></label>
+          <span></span>
+          <button id="retime-apply" data-i18n="editor.retimeApply">Retime</button>
+        </div>
+        <p class="hint" data-i18n="editor.retimeHelp">Factor 2 makes the motion twice as long (half speed).</p>
+      </section>
+    </div>
+    <footer class="job-footer editor-footer">
+      <div class="job-state"><span class="job-indicator"></span><span id="editor-status" role="status" aria-live="polite"></span></div>
+      <label class="field" for="save-name"><span data-i18n="editor.saveName">Name for a new motion</span><input id="save-name" maxlength="80" pattern="[A-Za-z0-9_\-]+" aria-describedby="save-name-help" spellcheck="false"></label>
+      <p id="save-name-help" class="hint" data-i18n="settings.nameHelp">Letters, numbers, underscores and hyphens.</p>
+      <div class="job-actions"><button id="save-new" class="primary" data-i18n="editor.saveNew">Save as new motion</button><button id="save-overwrite" data-i18n="editor.overwrite">Overwrite</button></div>
+      <div class="job-actions"><button id="save-model" data-i18n="result.install">Save to model folder</button><button id="save-revert" data-i18n="editor.revert">Revert</button></div>
+    </footer>
+  </aside>
 </main>
 <dialog id="settings" class="settings" aria-labelledby="settings-title"></dialog>
+<dialog id="mapping" class="settings mapping-dialog" aria-labelledby="mapping-title"></dialog>
 </body>
 </html>

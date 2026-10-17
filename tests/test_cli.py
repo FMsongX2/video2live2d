@@ -82,3 +82,49 @@ def test_dry_run_reports_settings_and_planned_files(tmp_path):
     assert res["installed"] == str(model / "x.motion3.json")
     assert res["settings"]["intensity"]["gaze"] == 2.0
     assert not (tmp_path / "o").exists()
+
+
+def test_bridge_check_and_show_work_without_numpy():
+    code = ("import sys, json; sys.modules['numpy'] = None\n"
+            "from v2l import cli\n"
+            "sys.exit(cli.main(['bridge', 'check', '--func', 'JawOpen * (1 - CheekPuff', '--json']))")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    res = json.loads(r.stdout)
+    assert r.returncode == 2 and res["valid"] is False and res["error"]["type"] == "invalid"
+    assert res["problem"]["position"] == len("JawOpen * (1 - CheekPuff") and res["inputs"] == ["CheekPuff", "JawOpen"]
+    code, out, _ = _cli("bridge", "show", "--json")
+    assert code == 0 and any(p["name"] == "FaceAngleX" and p["source"] == "preset" for p in json.loads(out)["params"])
+
+
+def test_dry_run_plans_the_signals_file_and_checks_the_mapping(tmp_path):
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"")
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "m.model3.json").write_text("{}")
+    good = tmp_path / "map.json"
+    good.write_text(json.dumps({"format": "v2l.mapping", "version": 1,
+                                "bridge": [{"name": "MouthOpen", "modifiers": {"smoothing": 0.3}}]}))
+    code, out, _ = _cli("run", str(video), "--model", str(model), "--name", "x", "--out", str(tmp_path / "o"),
+                        "--mapping", str(good), "--dump-signals", "--dry-run", "--json")
+    res = json.loads(out)
+    assert code == 0 and res["files"]["signals"] == str(tmp_path / "o" / "x.signals.json")
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"format": "v2l.mapping", "version": 1, "bridge": [{"name": "MouthOpen", "func": "1 +"}]}))
+    code, out, _ = _cli("run", str(video), "--model", str(model), "--name", "x", "--mapping", str(bad), "--dry-run",
+                        "--json")
+    err = json.loads(out)["error"]
+    assert code == 2 and err["type"] == "invalid" and any("cannot parse formula" in p for p in err["problems"])
+
+
+def test_signals_dump_shape():
+    np = pytest.importorskip("numpy")
+    from v2l.pipeline import signals_json
+
+    raw = {"yaw": np.array([1.23456, np.nan, 3.0]), "EyeWideLeft": np.array([0.1, 0.2, 0.3])}
+    curved = {"yaw": raw["yaw"], "EyeWideLeft": np.array([0.2, 0.4, 0.6])}
+    d = signals_json(raw, curved, {"MouthOpen": np.array([0.0, 0.5, 1.0])}, 30.0, {"EyeWideLeft": {}})
+    assert d == {"fps": 30.0, "duration": 2 / 30,
+                 "inputs": {"yaw": [1.2346, None, 3.0], "EyeWideLeft": [0.2, 0.4, 0.6]},
+                 "inputs_raw": {"EyeWideLeft": [0.1, 0.2, 0.3]}, "bridge": {"MouthOpen": [0.0, 0.5, 1.0]}}
+    json.dumps(d, allow_nan=False)
