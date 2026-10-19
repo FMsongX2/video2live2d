@@ -1,6 +1,6 @@
 """v2l command line (runs on the compute machine; see remote.py for the laptop side).
 
-  v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config FILE]...
+  v2l run INPUT --model DIR --name NAME [--audio FILE] [--out DIR] [--preset NAME|FILE] [--config FILE]...
           [--set section.name=value]... [shortcut flags] [--mapping FILE] [--dump-signals]
           [--no-install] [--dry-run] [--json] [--progress text|json]
   v2l probe --model DIR [--details] [--json]
@@ -16,13 +16,17 @@
   v2l version [--json]
   v2l mcp [--read-only] [--toolsets ...] [--allow-dir DIR]...   MCP server on stdio (`mcp` extra)
 
+INPUT is a video or an audio file (.wav .mp3 .m4a .aac .flac .ogg .opus, or a container without a
+video stream). Audio drives the face with NVIDIA Audio2Face-3D (`audio` extra, docs/audio.md); for a
+video, audio.use=mouth|face (--audio-use) takes those channels from its own sound or from --audio FILE.
 --mapping FILE is a v2l.mapping file: input curves, bridge changes and parameter mappings
 (docs/motion-editing.md section 5). --dump-signals also writes <name>.signals.json.
 
 Settings: defaults < --preset < --config files in order < shortcut flags < --set in order.
 With --json, stdout carries exactly one JSON object and every other line goes to stderr.
-Exit codes: 0 ok, 1 runtime failure, 2 usage or validation error, 3 unusable input (the video
-does not open or no face is tracked), 4 compute host unreachable (v2l-remote), 130 interrupted.
+Exit codes: 0 ok, 1 runtime failure (error type "audio_unavailable" when Audio2Face-3D cannot run),
+2 usage or validation error, 3 unusable input (the video does not open, no face is tracked, the
+audio is missing or silent), 4 compute host unreachable (v2l-remote), 130 interrupted.
 Only stdlib modules are imported eagerly, so everything but run/probe/mapping show (and mapping
 validate --model) works without the tracking dependencies.
 """
@@ -39,7 +43,7 @@ import time
 import traceback
 
 from . import config as C
-from .errors import UnusableInput
+from .errors import AudioUnavailable, UnusableInput
 
 BRIDGES = pathlib.Path(__file__).parent / "bridges"
 
@@ -65,7 +69,7 @@ def _shortcuts(a: argparse.Namespace) -> dict:
 
     for flag, key in (("style", "style.name"), ("fps", "output.fps"), ("fade", "output.fade"),
                       ("start", "input.start"), ("end", "input.end"), ("bridge", "bridge.preset"),
-                      ("rare_stride", "expressions.stride")):
+                      ("rare_stride", "expressions.stride"), ("audio_use", "audio.use")):
         if getattr(a, flag) is not None:
             put(key, getattr(a, flag))
     if a.loop:
@@ -90,11 +94,18 @@ def settings(a: argparse.Namespace) -> C.Config:
     return cfg
 
 
-def check_inputs(video: str, model: str, cfg: C.Config) -> tuple[pathlib.Path, pathlib.Path]:
-    """Cheap checks before any tracking: the video file, the model folder and the bridge preset."""
+def check_inputs(video: str, model: str, cfg: C.Config, audio: str | None = None) -> tuple[pathlib.Path, pathlib.Path]:
+    """Cheap checks before any tracking: the input (video or audio) and --audio files, their
+    combination with audio.use, the model folder and the bridge preset."""
+    from . import media
+
     v = pathlib.Path(video).expanduser().resolve()
     if not v.is_file():
-        raise FileNotFoundError(f"video not found: {v}")
+        raise FileNotFoundError(f"input not found: {v}")
+    if audio is not None and not pathlib.Path(audio).expanduser().is_file():
+        raise FileNotFoundError(f"audio not found: {pathlib.Path(audio).expanduser().resolve()}")
+    if (media.kind(v) == "audio" and audio is not None) or (audio is not None and cfg.audio.use == "off"):
+        media.plan(v, audio, cfg.audio.use)  # raises ValueError with the reason
     m = pathlib.Path(model).expanduser().resolve()
     if not m.is_dir():
         raise FileNotFoundError(f"model folder not found: {m}")
@@ -130,8 +141,11 @@ def _parser() -> _Parser:
     ap = _Parser(prog="v2l", description="video of a person -> Live2D motion3.json")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    r = sub.add_parser("run", help="track, solve, write motion3.json, render preview, write report")
-    r.add_argument("video")
+    r = sub.add_parser("run", help="track (or run the audio model), solve, write motion3.json, render preview, "
+                                   "write report")
+    r.add_argument("video", metavar="INPUT", help="video, or audio file for an audio-driven face")
+    r.add_argument("--audio", metavar="FILE", help="separate audio track for a video input; needs "
+                   "audio.use=mouth|face (--audio-use). Without it the video's own sound is used")
     r.add_argument("--model", required=True, help="Live2D model folder (*.model3.json, optional *.vtube.json)")
     r.add_argument("--name", required=True, help="output name; the motion is <name>.motion3.json")
     r.add_argument("--out", default="v2l_out", help="output folder (default: v2l_out)")
@@ -155,6 +169,8 @@ def _parser() -> _Parser:
     g.add_argument("--no-preview", action="store_true", help="preview.enabled=false")
     g.add_argument("--no-rare", action="store_true", help="expressions.enabled=false: skip cheek puff / tongue out")
     g.add_argument("--rare-stride", type=int, help="expressions.stride: score every n-th frame")
+    g.add_argument("--audio-use", choices=("off", "mouth", "face"),
+                   help="audio.use: take the mouth or the whole face of a video from its audio")
     r.add_argument("--mapping", metavar="FILE", help="v2l.mapping file: input curves, bridge changes and "
                    "parameter mappings for this model (v2l mapping show/inputs, v2l bridge show)")
     r.add_argument("--dump-signals", action="store_true",
@@ -272,7 +288,7 @@ class _Events:
 
 def _summary(rep: dict) -> dict:
     return {k: rep[k] for k in ("name", "face_rate", "curves", "points", "blinks", "rare_seconds", "warnings",
-                                "mapping_notes", "bridge_inputs_without_signal")}
+                                "mapping_notes", "bridge_inputs_without_signal", "source")}
 
 
 def load_mapping(path: str | None, bridge: str = "default") -> dict | None:
@@ -290,18 +306,21 @@ def load_mapping(path: str | None, bridge: str = "default") -> dict | None:
 
 def _run(a: argparse.Namespace, log, event) -> dict:
     cfg = settings(a)  # configuration and input errors before any heavy import
-    video, model = check_inputs(a.video, a.model, cfg)
+    video, model = check_inputs(a.video, a.model, cfg, a.audio)
     overrides = load_mapping(a.mapping, cfg.bridge.preset)
     out = pathlib.Path(a.out).expanduser().resolve()
     files = planned_files(out, a.name, cfg, a.dump_signals)
     installed = None if a.no_install else str(model / f"{a.name}.motion3.json")
     if a.dry_run:
+        from . import media
+
         return {"ok": True, "dry_run": True, "name": a.name, "out_dir": str(out), "files": files,
-                "installed": installed, "settings": C.to_dict(cfg), "mapping": overrides}
+                "installed": installed, "settings": C.to_dict(cfg), "mapping": overrides,
+                "source": media.plan(video, a.audio, cfg.audio.use)}
     from .pipeline import run
 
     rep = run(video, model, a.name, out, cfg, install=not a.no_install, log=log, event=event,
-              mapping_overrides=overrides, dump_signals=a.dump_signals)
+              mapping_overrides=overrides, dump_signals=a.dump_signals, audio=a.audio)
     if files["preview"] and not pathlib.Path(files["preview"]).exists():
         files["preview"] = None
     return {"ok": True, "name": a.name, "out_dir": str(out), "files": files, "installed": installed,
@@ -456,6 +475,8 @@ def _error(e: BaseException) -> tuple[str, int]:
         return "invalid", 2
     if isinstance(e, UnusableInput):
         return "unusable_input", 3
+    if isinstance(e, AudioUnavailable):
+        return "audio_unavailable", 1
     if isinstance(e, (FileNotFoundError, NotADirectoryError, ValueError)):
         return "input", 2
     if isinstance(e, KeyboardInterrupt):

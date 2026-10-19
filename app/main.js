@@ -34,6 +34,9 @@ const ENV = { ...process.env, PATH: ["/opt/homebrew/bin", "/usr/local/bin", proc
 const PY_ENV = { ...ENV, PYTHONPATH: path.join(ROOT, "src") + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : "") };
 const NAME_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const PRESET_RE = /^[A-Za-z0-9_-]{1,64}$/;
+// Source files by extension, as `v2l run` reads them: a video (tracking) or an audio file (Audio2Face-3D).
+const VIDEO_EXT = ["mp4", "mov", "m4v", "webm", "mkv"];
+const AUDIO_EXT = ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"];
 
 // The product name has a space; keep the data folder where earlier versions put it.
 if (!app.commandLine.hasSwitch("user-data-dir")) app.setPath("userData", path.join(app.getPath("appData"), "v2l-studio"));
@@ -399,8 +402,9 @@ function cliValue(value) {
 function cliCommand(o) {
   const preset = o.preset || "default";
   const sets = sparseAgainst(effectiveConfig(preset, o.perRun), presetBaseline(preset));
-  const args = ["v2l", "run", o.video || "VIDEO", "--model", o.modelDir || "MODEL_DIR", "--name", o.name || "NAME",
+  const args = ["v2l", "run", o.input || "INPUT", "--model", o.modelDir || "MODEL_DIR", "--name", o.name || "NAME",
                 "--out", path.join(outDir(), o.name || "NAME")];
+  if (o.audio) args.push("--audio", o.audio);
   if (preset !== "default") args.push("--preset", preset);
   const mapping = o.modelDir ? mappingOverrides(o.modelDir) : null;
   if (mapping) args.push("--mapping", mapping);
@@ -436,6 +440,8 @@ const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".moc3": "application/octet-stream",
   ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4v": "video/mp4", ".mkv": "video/x-matroska",
+  ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac",
+  ".ogg": "audio/ogg", ".opus": "audio/ogg",
 };
 
 function serveFile(req, res, file) {
@@ -828,16 +834,39 @@ ipcMain.handle("model:open", async (_e, { dir, maxTex }) => {
 
 ipcMain.handle("model:motions", async (_e, dir) => listMotions(dir));
 
-ipcMain.handle("video:open", async (_e, file) => {
+// Streams of a media file from ffprobe: {duration, video: {width, height} | null, audio: {codec,
+// sampleRate, channels} | null}, or null when ffprobe is not installed or cannot read the file.
+async function probeMedia(file) {
+  const r = await capture("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,sample_rate,channels,width,height",
+                                      "-of", "json", file], { cwd: os.homedir() });
+  if (r.code !== 0) return null;
+  let info;
+  try { info = JSON.parse(r.stdout); } catch { return null; }
+  const streams = info.streams || [];
+  const v = streams.find((s) => s.codec_type === "video" && s.width), a = streams.find((s) => s.codec_type === "audio");
+  return {
+    duration: Number(info.format?.duration) || null,
+    video: v ? { width: v.width, height: v.height } : null,
+    audio: a ? { codec: a.codec_name || "", sampleRate: Number(a.sample_rate) || null, channels: a.channels || null } : null,
+  };
+}
+
+// A source for `v2l run`: a video or an audio file. only: "audio" picks the separate audio track
+// of a video (`--audio`). probe is null when ffprobe is missing; the renderer then checks itself.
+ipcMain.handle("source:open", async (_e, { file, only } = {}) => {
   if (!file) {
-    const r = await dialog.showOpenDialog(win, {
-      title: t("main.videoDialogTitle"), properties: ["openFile"],
-      filters: [{ name: t("main.videoFilter"), extensions: ["mp4", "mov", "m4v", "webm", "mkv"] }],
-    });
+    const filters = only === "audio"
+      ? [{ name: t("main.audioFilter"), extensions: AUDIO_EXT }]
+      : [{ name: t("main.mediaFilter"), extensions: [...VIDEO_EXT, ...AUDIO_EXT] }, { name: t("main.videoFilter"), extensions: VIDEO_EXT }, { name: t("main.audioFilter"), extensions: AUDIO_EXT }];
+    const r = await dialog.showOpenDialog(win, { title: t(only === "audio" ? "main.audioDialogTitle" : "main.videoDialogTitle"), properties: ["openFile"], filters });
     if (r.canceled) return null;
     file = r.filePaths[0];
   }
-  return { file, name: path.basename(file), url: fileUrl(file) };
+  const ext = path.extname(file).slice(1).toLowerCase();
+  const kind = AUDIO_EXT.includes(ext) ? "audio" : VIDEO_EXT.includes(ext) ? "video" : null;
+  if (!kind || (only === "audio" && kind !== "audio")) throw new Error(t("drop.wrongType"));
+  const size = (await fsp.stat(file)).size;
+  return { file, name: path.basename(file), url: fileUrl(file), kind, size, probe: await probeMedia(file) };
 });
 
 // ---------------------------------------------------------------- IPC: compute
@@ -932,8 +961,9 @@ async function installMotion(file, modelDir) {
   return dest;
 }
 
-// o: {video, modelDir, name, preset, perRun: {"section.name": value}, suffix?: true,
-//     reuseConfig?: <configFile of an earlier run>, preview?: true, mapping?: <draft v2l.mapping>}.
+// o: {input (video or audio file), audio?: <separate audio track for a video>, modelDir, name, preset,
+//     perRun: {"section.name": value}, suffix?: true, reuseConfig?: <configFile of an earlier run>,
+//     preview?: true, mapping?: <draft v2l.mapping>}.
 // The model's saved mapping overrides apply, or the draft for a preview. Previews go to a
 // temporary folder ("Keep" moves them to the output folder) and are never installed.
 const previewsDir = () => path.join(app.getPath("userData"), "previews");
@@ -977,10 +1007,10 @@ ipcMain.handle("run:start", async (_e, o) => {
 
   // --dump-signals: inputs and bridge outputs over time, for the mapping editor's graphs.
   const common = ["--model", o.modelDir, "--name", name, "--no-install", "--config", configFile, ...(mapping ? ["--mapping", mapping] : []),
-                  "--dump-signals", "--json", "--progress", "json"];
+                  ...(o.audio ? ["--audio", String(o.audio)] : []), "--dump-signals", "--json", "--progress", "json"];
   const [cmd, args, env, cwd] = mode === "remote"
-    ? [REMOTE, ["run", o.video, ...common.slice(0, 4), "--out", out, ...common.slice(4)], computeEnv(), ROOT]
-    : [executable(), ["run", o.video, ...common.slice(0, 4), "--out", path.join(out, name), ...common.slice(4)], ENV, out];
+    ? [REMOTE, ["run", o.input, ...common.slice(0, 4), "--out", out, ...common.slice(4)], computeEnv(), ROOT]
+    : [executable(), ["run", o.input, ...common.slice(0, 4), "--out", path.join(out, name), ...common.slice(4)], ENV, out];
   await fsp.mkdir(out, { recursive: true });
   const filter = appValue("advanced.filterLog");
   send("run:log", `$ ${[mode === "remote" ? "v2l-remote" : cmd, ...args].map(shellQuote).join(" ")}`);
@@ -1303,30 +1333,43 @@ ipcMain.handle("edit:native", (_e, which) => { if (which === "redo") win?.webCon
 
 ipcMain.handle("reveal", (_e, p) => shell.showItemInFolder(p));
 
-ipcMain.handle("camera:access", async (_e, { audio } = {}) => {
-  if (process.platform !== "darwin") return true;
-  const cam = systemPreferences.getMediaAccessStatus("camera") === "granted" || await systemPreferences.askForMediaAccess("camera");
-  if (!cam) return false;
-  return !audio || systemPreferences.getMediaAccessStatus("microphone") === "granted" || await systemPreferences.askForMediaAccess("microphone");
+// camera: false asks for the microphone only (voice takes). Chromium's fake capture devices
+// (--use-fake-device-for-media-stream, for automated tests) need no system permission.
+ipcMain.handle("camera:access", async (_e, { camera = true, audio } = {}) => {
+  if (process.platform !== "darwin" || app.commandLine.hasSwitch("use-fake-device-for-media-stream")) return true;
+  const ask = async (kind) => systemPreferences.getMediaAccessStatus(kind) === "granted" || systemPreferences.askForMediaAccess(kind);
+  if (camera && !await ask("camera")) return false;
+  return !audio || ask("microphone");
 });
 
-// A webcam take from MediaRecorder: written as-is, then remuxed (no re-encode) with ffmpeg when
-// available so the file has a proper index for seeking and an exact duration.
-ipcMain.handle("recording:save", async (_e, { bytes, ext }) => {
+// A take from MediaRecorder: written as-is, then remuxed (no re-encode) with ffmpeg when available
+// so the file has a proper index for seeking and an exact duration. Webcam takes stay MP4 or WebM;
+// voice takes become .m4a (from MP4) or .opus (Ogg, from WebM/Opus) so `v2l run` reads them as
+// audio. Without ffmpeg a WebM voice take cannot be remuxed: ok is false and the renderer saves a
+// WAV (ext "wav", written as-is) instead.
+ipcMain.handle("recording:save", async (_e, { bytes, ext, voice = false }) => {
   const dir = path.join(outDir(), "recordings");
   await fsp.mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "_").slice(0, 15);
-  const raw = path.join(dir, `rec_${stamp}.raw.${ext === "mp4" ? "mp4" : "webm"}`);
+  const prefix = voice ? "voice" : "rec";
+  if (voice && ext === "wav") {
+    const file = path.join(dir, `${prefix}_${stamp}.wav`);
+    await fsp.writeFile(file, Buffer.from(bytes));
+    return { ok: true, file, name: path.basename(file) };
+  }
+  const mp4 = ext === "mp4";
+  const raw = path.join(dir, `${prefix}_${stamp}.raw.${mp4 ? "mp4" : "webm"}`);
   await fsp.writeFile(raw, Buffer.from(bytes));
-  const out = path.join(dir, `rec_${stamp}.${ext === "mp4" ? "mp4" : "webm"}`);
+  const out = path.join(dir, `${prefix}_${stamp}.${voice ? (mp4 ? "m4a" : "opus") : (mp4 ? "mp4" : "webm")}`);
   const code = await new Promise((resolve) => {
-    const ff = spawn("ffmpeg", ["-v", "error", "-y", "-i", raw, "-c", "copy", ...(ext === "mp4" ? ["-movflags", "+faststart"] : []), out], { env: ENV, stdio: "ignore" });
+    const ff = spawn("ffmpeg", ["-v", "error", "-y", "-i", raw, "-c", "copy", ...(mp4 ? ["-movflags", "+faststart"] : []), out], { env: ENV, stdio: "ignore" });
     ff.on("error", () => resolve(-1));
     ff.on("close", resolve);
   });
   if (code === 0 && fs.existsSync(out)) await fsp.rm(raw);
+  else if (voice && !mp4) { await fsp.rm(raw, { force: true }); await fsp.rm(out, { force: true }); return { ok: false }; }
   else await fsp.rename(raw, out);
-  return { file: out, name: path.basename(out) };
+  return { ok: true, file: out, name: path.basename(out) };
 });
 
 // ---------------------------------------------------------------- menu and window

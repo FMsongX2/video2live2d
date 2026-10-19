@@ -2,7 +2,7 @@
 // and a search box that filters settings across all sections. Generation defaults and Tuning
 // are generated from the v2l configuration schema (src/v2l/config.py); nothing here is
 // written per field. Every change is saved immediately through prefs (no Save button).
-import { LANGUAGES, language, languageName, t, tIn } from "./i18n.js";
+import { LANGUAGES, has, language, languageName, t, tIn } from "./i18n.js";
 import { errorText, prefs } from "./prefs.js";
 
 const api = window.v2l;
@@ -17,10 +17,11 @@ const dlg = document.getElementById("settings");
 
 export const SECTIONS = ["general", "compute", "output", "generation", "tuning", "presets", "viewer", "camera", "agents", "advanced", "about"];
 // Schema fields shown outside Tuning; the bench owns the trim range.
-const GENERATION_KEYS = ["style.name", "output.loop", "output.interpolation", "input.flip", "expressions.enabled", "expressions.stride", "output.fps", "output.fade", "bridge.preset"];
+const GENERATION_KEYS = ["style.name", "output.loop", "output.interpolation", "input.flip", "expressions.enabled", "expressions.stride", "output.fps", "output.fade", "bridge.preset",
+                         "audio.use", "audio.emotion", "audio.emotion_strength", "audio.identity"];
 const OUTPUT_KEYS = ["preview.enabled"];
 const PER_RUN_ONLY = ["input.start", "input.end"];
-const TUNING_GROUPS = ["calibration", "intensity", "gaps", "expressions", "style", "filtering", "bridge", "io"];
+const TUNING_GROUPS = ["calibration", "intensity", "gaps", "expressions", "style", "filtering", "bridge", "audio", "idle", "io"];
 const SMOOTHING_MARKS = [["prefs.smoothing.crisp", 1.5], ["prefs.smoothing.normal", 1.0], ["prefs.smoothing.smooth", 0.6]];
 const CHOICE_KEYS = { "style.name": { cute: "settings.styleCute", faithful: "settings.styleFaithful" },
                       "output.interpolation": { linear: "editor.type.linear", bezier: "editor.type.bezier" } };
@@ -121,9 +122,11 @@ function widget(f, id, r, labelId, set) {
     return { node: box, sync: (v) => { box.checked = !!v; } };
   }
   if (f.kind === "enum") {
+    // Choice names: a few shared labels, else choice.<section.name>.<value> where translated.
     const names = CHOICE_KEYS[key] || {};
+    const name = (c) => names[c] || (has(`choice.${key}.${c}`) ? `choice.${key}.${c}` : null);
     const sel = h("select", { id, onchange: () => commit(r, () => set(sel.value)) },
-      f.choices.map((c) => h("option", { value: c, text: names[c] ? t(names[c]) : c })));
+      f.choices.map((c) => h("option", { value: c, text: name(c) ? t(name(c)) : c })));
     return { node: sel, sync: (v) => { sel.value = v; } };
   }
   if (f.kind === "string") {

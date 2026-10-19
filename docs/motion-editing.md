@@ -260,7 +260,9 @@ sees:
 There is one value per output frame (frame `i` is at `i / fps` seconds), rounded to 4 decimals,
 `null` where nothing was tracked. `inputs` are the tracking inputs after the input curves,
 `inputs_raw` the values before the curve for the inputs that have one, and `bridge` the bridge
-outputs after their modifiers.
+outputs after their modifiers. Runs driven by audio add `"source": {"kind", "audio_inputs",
+"generated"}` (which inputs came from the audio model and which were generated) and
+`"audio": {"loudness": [...]}` (0..1 per output frame); see [audio.md](audio.md).
 
 ## 6. Commands and tools
 

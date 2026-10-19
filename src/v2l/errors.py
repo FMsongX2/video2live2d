@@ -2,4 +2,9 @@
 
 
 class UnusableInput(ValueError):
-    """The video cannot be used: it does not open, or no face is tracked where one is needed."""
+    """The input cannot be used: the video does not open, no face is tracked where one is needed,
+    or the audio is missing, undecodable or silent."""
+
+
+class AudioUnavailable(RuntimeError):
+    """Audio2Face-3D cannot run here (the `audio` extra, the model files or a device is missing)."""

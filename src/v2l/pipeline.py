@@ -1,4 +1,4 @@
-"""End-to-end: video + model folder -> motion3.json (+ preview video and QA report)."""
+"""End-to-end: video or audio + model folder -> motion3.json (+ preview video and QA report)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import re
 
 import numpy as np
 
-from . import mapping, motion3, temporal
+from . import mapping, media, motion3, temporal
 from .assets import CACHE
 from .bridge import Bridge
 from .calibrate import calibrate, scale
@@ -18,6 +18,7 @@ from .features import features
 from .model import Model, load
 from .signals import Signals, extract
 from .style import apply_cute
+from .errors import UnusableInput
 
 # Low-pass group (a filtering.* setting) by parameter id pattern; first match wins.
 # Breathing is never filtered.
@@ -35,7 +36,7 @@ FILTER_GROUPS = [
     (r".", "other"),
 ]
 
-STAGES = ("probe", "tracking", "expressions", "solving", "writing", "preview")
+STAGES = ("probe", "tracking", "expressions", "audio", "solving", "writing", "preview")
 
 
 def text_events(log=print):
@@ -141,17 +142,30 @@ def cutoff(filtering, group: str, fps: float) -> float:
     return min(c, 0.45 * fps) if c >= fps / 2 > base else c
 
 
+def track_inputs(signals: Signals, cfg: Config, rare_scores: dict[str, np.ndarray] | None = None
+                 ) -> tuple[dict[str, np.ndarray], dict]:
+    """Calibrated, rest-centred inputs on the tracked frame times, and the calibration record."""
+    return calibrate(features(signals, rare_scores), signals.t, cfg.calibration, cfg.expressions)
+
+
 def solve(signals: Signals, model: Model, cfg: Config, rare_scores: dict[str, np.ndarray] | None = None,
           overrides: dict | None = None, dump: bool = False) -> tuple[dict[str, np.ndarray], dict]:
     """Returns Live2D parameter curves on the output grid and a record of every decision.
     overrides: a v2l.mapping object (input curves, bridge changes, entries; docs/motion-editing.md).
     dump: also put the tracking inputs and bridge outputs on the grid into info["signals"]."""
+    x, cal = track_inputs(signals, cfg, rare_scores)
+    return solve_inputs(x, signals.t, cal, model, cfg, overrides, dump, rare=rare_scores is not None)
+
+
+def solve_inputs(x: dict[str, np.ndarray], t_src: np.ndarray, cal: dict, model: Model, cfg: Config,
+                 overrides: dict | None = None, dump: bool = False, rare: bool = False
+                 ) -> tuple[dict[str, np.ndarray], dict]:
+    """solve() from calibrated inputs x on times t_src (with x["face_ok"], x["pose_ok"]): intensity,
+    input curves, resampling, bridge, mapping, style and filtering. rare: the zero-shot stage ran."""
     info: dict = {}
     fps = cfg.output.fps
-    f = features(signals, rare_scores)
-    x, cal = calibrate(f, signals.t, cfg.calibration, cfg.expressions)
     x = scale(x, cfg.intensity)
-    raw, t, present = temporal.resample(x, signals.t, fps, max_gap=cfg.gaps.max_gap, ramp=cfg.gaps.ramp)
+    raw, t, present = temporal.resample(x, t_src, fps, max_gap=cfg.gaps.max_gap, ramp=cfg.gaps.ramp)
     n = len(t)
     grid = mapping.apply_input_curves(overrides, raw)
     bridge = Bridge.load(cfg.bridge.preset, (overrides or {}).get("bridge"))
@@ -191,7 +205,7 @@ def solve(signals: Signals, model: Model, cfg: Config, rare_scores: dict[str, np
         presence_min=float(present.min()) if n else 0.0,
         # Seconds with the zero-shot cheek puff / tongue out above half (None: stage not run).
         rare_seconds={k: float((raw[k] > 0.5).sum() / fps) for k in ("CheekPuff", "TongueOut")}
-        if rare_scores is not None else None,
+        if rare else None,
     )
     if dump:
         info["signals"] = signals_json(raw, grid, bridged, fps, (overrides or {}).get("input_curves") or {})
@@ -211,14 +225,16 @@ def signals_json(raw: dict, curved: dict, bridged: dict, fps: float, input_curve
             "bridge": {k: series(v) for k, v in bridged.items()}}
 
 
-def quality_report(signals: Signals, params: dict[str, np.ndarray], model: Model, info: dict, fps: float) -> dict:
-    """Numbers a reviewer needs before trusting a motion; warnings flag likely failures."""
-    face_rate = float(signals.face_ok.mean())
-    pose_rate = float(signals.pose_ok.mean())
-    lost = ~signals.face_ok
+def quality_report(signals: Signals | None, params: dict[str, np.ndarray], model: Model, info: dict,
+                   fps: float) -> dict:
+    """Numbers a reviewer needs before trusting a motion; warnings flag likely failures.
+    signals None (audio-only input): nothing was tracked, face_rate is 1 and pose_rate null."""
+    face_rate = float(signals.face_ok.mean()) if signals is not None else 1.0
+    pose_rate = float(signals.pose_ok.mean()) if signals is not None else None
     longest = 0.0
-    for a, b in temporal._runs(lost):
-        longest = max(longest, float(signals.t[min(b, len(signals.t) - 1)] - signals.t[a]))
+    if signals is not None:
+        for a, b in temporal._runs(~signals.face_ok):
+            longest = max(longest, float(signals.t[min(b, len(signals.t) - 1)] - signals.t[a]))
     per_param = {}
     for pid, v in params.items():
         r = model.ranges[pid]
@@ -243,22 +259,53 @@ def quality_report(signals: Signals, params: dict[str, np.ndarray], model: Model
         if pid in per_param and per_param[pid]["use"] < 0.05:
             warnings.append(f"{label} ({pid}) barely moves (uses {per_param[pid]['use']:.0%} of its range)")
     return {
-        "frames_tracked": int(len(signals.t)), "face_rate": face_rate, "pose_rate": pose_rate,
-        "longest_face_gap_s": longest, "neutral_window_s": info["calibration"]["neutral_window_s"],
+        "frames_tracked": int(len(signals.t)) if signals is not None else 0, "face_rate": face_rate,
+        "pose_rate": pose_rate, "longest_face_gap_s": longest,
+        "neutral_window_s": info["calibration"].get("neutral_window_s"),
         "blinks": blinks, "params": per_param, "warnings": warnings,
     }
 
 
-def run(video: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out_dir: str | pathlib.Path,
+def audio_inputs(track, span: tuple[float, float], t_src: np.ndarray, cfg: Config, log=print, progress=None
+                 ) -> tuple[dict[str, np.ndarray], dict]:
+    """Audio2Face-3D inputs at clip times t_src (seconds from span[0], shifted by audio.offset) and
+    the run's record (report "audio" section)."""
+    from . import audio as A
+
+    diag = A.diagnostics(track, span)
+    res = A.run_a2f(track, cfg.audio, log=log, progress=progress)
+    quiet = loudness_on(track, res["t"]) < A.QUIET
+    x = A.at(A.inputs(res, cfg.idle, quiet), res["t"], span[0] + t_src - cfg.audio.offset)
+    info = track.info
+    record = {"path": str(track.path), "sample_rate": info.get("sample_rate"), "channels": info.get("channels"),
+              "duration_s": info.get("duration_s"), "window_s": [round(span[0], 4), round(span[1], 4)],
+              "decoded_s": [round(track.t0, 4), round(track.t1, 4)], "offset_s": cfg.audio.offset, **diag,
+              "fps": res["fps"], "frames": int(len(res["t"])), "model": res["meta"]}
+    return x, record
+
+
+def loudness_on(track, abs_times: np.ndarray) -> np.ndarray:
+    from . import audio as A
+
+    te, _, loud = A.envelope(track)
+    return np.interp(abs_times, te, loud, left=0.0, right=0.0)
+
+
+def run(source: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out_dir: str | pathlib.Path,
         cfg: Config, install: bool = True, log=print, event=None, mapping_overrides: dict | None = None,
-        dump_signals: bool = False) -> dict:
+        dump_signals: bool = False, audio: str | pathlib.Path | None = None) -> dict:
     """Writes <out_dir>/<name>.motion3.json, .report.json, and (cfg.preview.enabled) .preview.mp4;
     with install the motion is also copied into the model folder (VTube Studio lists it as an
     animation). mapping_overrides: a v2l.mapping object (checked against the model before tracking).
     dump_signals: also write <name>.signals.json (tracking inputs and bridge outputs per frame).
-    event receives {"event": "stage", "stage": s} as each of STAGES begins and
-    {"event": "progress", "stage": s, "done": d, "total": t} while tracking, scoring expressions
-    and rendering the preview."""
+
+    source is a video or an audio file (media.kind). Audio-only input drives the face with
+    Audio2Face-3D and generates head, body and blinks (cfg.idle). For video, cfg.audio.use mouth or
+    face takes those channels from the video's own audio track, or from `audio` (a separate file).
+
+    event receives {"event": "stage", "stage": s} as each of STAGES begins (audio-only input skips
+    tracking and expressions) and {"event": "progress", "stage": s, "done": d, "total": t} while
+    tracking, scoring expressions, running the audio model and rendering the preview."""
     from .render import render_motion
 
     event = event or text_events(log)
@@ -266,25 +313,87 @@ def run(video: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out
     def stage(s: str) -> None:
         event({"event": "stage", "stage": s})
 
-    video = pathlib.Path(video).expanduser().resolve()
-    if not video.is_file():
-        raise FileNotFoundError(f"video not found: {video}")
+    source = pathlib.Path(source).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"input not found: {source}")
+    if audio is not None and not pathlib.Path(audio).expanduser().is_file():
+        raise FileNotFoundError(f"audio not found: {pathlib.Path(audio).expanduser().resolve()}")
+    src = media.plan(source, audio, cfg.audio.use)
+    if src["has_audio"] is False and src["use"] != "off":
+        raise UnusableInput(f"{pathlib.Path(src['audio'] or source).name} has no audio track")
     Bridge.load(cfg.bridge.preset, (mapping_overrides or {}).get("bridge"))  # fail before tracking
+    if src["use"] != "off":
+        from . import audio as A
+
+        A.require()  # the audio extra and a device, before probing and tracking
     out_dir = pathlib.Path(out_dir).expanduser().resolve()
     stage("probe")
     model = prepare_model(model_dir, log=log)
     if mapping_overrides:
         mapping.effective(model, mapping_overrides, cfg.bridge.preset)  # fail before tracking
     out_dir.mkdir(parents=True, exist_ok=True)
-    stage("tracking")
-    signals = get_signals(video, cfg, log=log, progress=_progress(event, "tracking"))
-    stage("expressions")
-    rare_scores = get_rare(video, signals, cfg, log=log, progress=_progress(event, "expressions"))
-    stage("solving")
-    log("solving")
-    params, info = solve(signals, model, cfg, rare_scores, mapping_overrides, dump=dump_signals)
+    i = cfg.input
+    signals = track = None
+    audio_record = idle_record = None
+    taken: list[str] = []
+    generated: list[str] = []
+    if src["kind"] == "audio":
+        from . import audio as A
+
+        stage("audio")
+        track = A.load(source, i.start, i.end)
+        span = A.clip_span(track, i.start, i.end)
+        t_src = np.arange(0.0, span[1] - span[0] + 1e-9, 1.0 / A.GRID_FPS)
+        x, audio_record = audio_inputs(track, span, t_src, cfg, log, _progress(event, "audio"))
+        taken = sorted(x)
+        blink_count = A.apply_blinks(x, t_src, cfg.idle)
+        head, idle_record = A.idle(t_src, loudness_on(track, span[0] + t_src - cfg.audio.offset), cfg.idle)
+        x.update(head)
+        generated = sorted(head) + (["EyeBlinkLeft", "EyeBlinkRight"] if blink_count is not None else [])
+        idle_record.update(blinks=blink_count, blink_mode=cfg.idle.blinks, gaze=cfg.idle.gaze)
+        x["face_ok"] = np.ones(len(t_src))
+        x["pose_ok"] = np.ones(len(t_src))
+        cal = {"neutral_window_s": None, "source": "audio"}
+        stage("solving")
+        log("solving")
+        params, info = solve_inputs(x, t_src, cal, model, cfg, mapping_overrides, dump=dump_signals)
+    else:
+        stage("tracking")
+        signals = get_signals(source, cfg, log=log, progress=_progress(event, "tracking"))
+        stage("expressions")
+        # With audio the cheek puff and tongue come from the audio model.
+        rare_scores = (get_rare(source, signals, cfg, log=log, progress=_progress(event, "expressions"))
+                       if src["use"] == "off" else None)
+        if src["use"] == "off":
+            stage("solving")
+            log("solving")
+            params, info = solve(signals, model, cfg, rare_scores, mapping_overrides, dump=dump_signals)
+        else:
+            from . import audio as A
+
+            stage("audio")
+            track = A.load(pathlib.Path(src["audio"] or source), i.start, i.end)
+            start = i.start or 0.0
+            span = (start, start + float(signals.t[-1]))
+            xa, audio_record = audio_inputs(track, span, signals.t, cfg, log, _progress(event, "audio"))
+            stage("solving")
+            log("solving")
+            xv, cal = track_inputs(signals, cfg)
+            x, taken = A.mix(xv, xa, src["use"])
+            if src["use"] == "face":
+                count = A.apply_blinks(x, signals.t, cfg.idle)
+                if count is not None:
+                    idle_record = {"seed": cfg.idle.seed, "blinks": count, "blink_mode": cfg.idle.blinks}
+                    generated = ["EyeBlinkLeft", "EyeBlinkRight"]
+            params, info = solve_inputs(x, signals.t, cal, model, cfg, mapping_overrides, dump=dump_signals)
     if dump_signals:
-        (out_dir / f"{name}.signals.json").write_text(json.dumps(info.pop("signals"), separators=(",", ":")))
+        dump = info.pop("signals")
+        if track is not None:
+            n = len(next(iter(dump["inputs"].values()), []))
+            heard = (i.start or 0.0) + np.arange(n) / cfg.output.fps
+            dump["source"] = {"kind": src["kind"], "audio_inputs": taken, "generated": generated}
+            dump["audio"] = {"loudness": [round(float(v), 4) for v in loudness_on(track, heard)]}
+        (out_dir / f"{name}.signals.json").write_text(json.dumps(dump, separators=(",", ":")))
     stage("writing")
     fps, preview = cfg.output.fps, cfg.preview.enabled
     motion = motion3.build(params, model.ranges, fps, loop=cfg.output.loop, fade_in=cfg.output.fade,
@@ -300,20 +409,25 @@ def run(video: str | pathlib.Path, model_dir: str | pathlib.Path, name: str, out
         (model.dir / motion_name).write_text(text)
 
     report = quality_report(signals, params, model, info, fps)
-    report.update(name=name, video=str(video), model=model.name, style=cfg.style.name, fps=fps, loop=cfg.output.loop,
-                  curves=motion["Meta"]["CurveCount"], points=motion["Meta"]["TotalPointCount"],
+    if audio_record is not None and audio_record["speech_ratio"] < 0.05:
+        report["warnings"].append(f"speech found in only {audio_record['speech_ratio']:.0%} of the audio")
+    report.update(name=name, video=src["video"], model=model.name, style=cfg.style.name, fps=fps,
+                  loop=cfg.output.loop, curves=motion["Meta"]["CurveCount"], points=motion["Meta"]["TotalPointCount"],
                   mapping_notes=info["mapping_notes"], bridge=info["bridge"], rare_seconds=info["rare_seconds"],
                   bridge_inputs_without_signal=info["bridge_inputs_without_signal"], calibration=info["calibration"],
                   mapping=info["mapping"], mapping_warnings=info["mapping_warnings"],
-                  mapping_overrides=mapping_overrides, config=to_dict(cfg))
+                  mapping_overrides=mapping_overrides, config=to_dict(cfg),
+                  source={k: src[k] for k in ("kind", "video", "audio", "audio_from", "use")},
+                  audio=audio_record, idle=idle_record)
     try:
         if preview:
             stage("preview")
             log("rendering preview")
             render_motion(model, motion_name, out_dir / f"{name}.preview.mp4", fps,
-                          model.probe.get("framing") if model.probe else None, src_video=str(video),
-                          src_start=cfg.input.start or 0.0, width=cfg.preview.width, height=cfg.preview.height,
-                          progress=_progress(event, "preview"))
+                          model.probe.get("framing") if model.probe else None, src_video=src["video"],
+                          src_start=i.start or 0.0, width=cfg.preview.width, height=cfg.preview.height,
+                          progress=_progress(event, "preview"),
+                          audio=src["audio"] if src["use"] != "off" else None)
     finally:
         if not install:
             (model.dir / motion_name).unlink(missing_ok=True)

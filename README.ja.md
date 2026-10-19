@@ -2,7 +2,7 @@
 
 <img src="docs/assets/banner.svg" alt="video2live2d: 動画フレーム、顔ランドマーク、Live2D パラメータ曲線" width="100%">
 
-<p><strong>人物を撮影した動画を、オフラインで Live2D Cubism モーションに変換します。</strong></p>
+<p><strong>人物を撮影した動画や音声の録音を、オフラインで Live2D Cubism モーションに変換します。</strong></p>
 
 <p>
 <a href="https://github.com/FMsongX2/video2live2d/actions/workflows/ci.yml"><img src="https://github.com/FMsongX2/video2live2d/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -15,23 +15,24 @@
 
 </div>
 
-video2live2d（V2L）は、顔と肩が映った実在の人物の動画を読み込み、VBridger 互換の Live2D モデル用に Cubism `.motion3.json` を書き出します。iPhone もリアルタイムトラッキングも使いません。クリップを録画してコマンドを 1 つ実行すれば、VTube Studio や任意の Cubism ランタイムで再生できるモーションが得られます。製品名は V2L で、Python パッケージとコマンドの名前は `v2l` です。
+video2live2d（V2L）は、顔と肩が映った実在の人物の動画を読み込み、VBridger 互換の Live2D モデル用に Cubism `.motion3.json` を書き出します。iPhone もリアルタイムトラッキングも使いません。クリップを録画してコマンドを 1 つ実行すれば、VTube Studio や任意の Cubism ランタイムで再生できるモーションが得られます。オプションの Audio2Live2D モードでは、動画の代わりに（または動画と組み合わせて）話し声の音声で顔を動かします。製品名は V2L で、Python パッケージとコマンドの名前は `v2l` です。
 
 ## 特長
 
 - **動画を入れるとモーションが出てくる。** 普通に録画したクリップから、頭と体の角度、目と視線、眉、VBridger の口パラメータ一式、肩、呼吸を生成します。
+- **Audio2Live2D。** NVIDIA Audio2Face-3D v3.0（オプションの `audio` extra）を通じて、話し声の音声で顔を動かします。音声だけなら、リップシンクした顔に頭・体・まばたきを生成して加えます。動画の場合は、口または顔全体を動画自身の音声や別の音声ファイルから取ることもできます。
 - **自動キャリブレーション。** クリップ内で最も動きの少ない区間を基準の表情とし、VBridger の手動 Calibrate ボタンの代わりにします。区間は自分で指定することもできます。
 - **モデル自身の設定を利用。** モデルに `*.vtube.json`（VTube Studio の設定）があれば、パラメータ範囲、クランプ、呼吸をそこから取得します。なければ標準の Cubism パラメータ ID を使います。
 - **リグに依存しない方向チェック。** ヘッドレスのレンダープローブが各パラメータの画面上の効果を計測し、逆向きの方向や左右が入れ替わった目を修正します。結果はモデルごとにキャッシュされます。
 - **SnenkBridge 形式のブリッジ。** 内蔵の VBridger 風ブリッジは SnenkBridge 数式言語の安全なインタプリタで評価され、`--bridge FILE` で同じ形式の他のプリセットを読み込めます。
 - **2 つのスタイル。** `cute`（デフォルト）は少し明るく生き生きとした演技を加え、`faithful` は何も加えません。
-- **すべて調整可能。** 入力、キャリブレーション、強さ、スムージング、スタイルなど 10 セクション・67 項目の設定は、CLI、V2L Studio、MCP サーバーが共有する 1 つのスキーマから来ています。内蔵プリセットとユーザープリセットでまとめて扱えます。
+- **すべて調整可能。** 入力、キャリブレーション、強さ、スムージング、スタイル、音声など 12 セクション・90 項目の設定は、CLI、V2L Studio、MCP サーバーが共有する 1 つのスキーマから来ています。内蔵プリセットとユーザープリセットでまとめて扱えます。
 - **エージェント対応。** `--json` で JSON の結果オブジェクトを 1 つ、`--progress json` で JSON Lines の進捗イベントを出力し、終了コードを明文化し、AI エージェント向けの MCP サーバーも備えています。
 - **モーション編集。** 区間ごとにリニア・ベジェ・ステップ・逆ステップを選べるキーフレーム、ベジェハンドル、再フィット、取り消しを、V2L Studio のカーブエディタまたは `v2l motion` の操作で扱えます。
 - **3 層のマッピング編集。** VBridger、SnenkBridge、VTube Studio のパラメータ設定を手本にしています。入力カーブ、数式と SnenkBridge 風のディレイバッファ・VBridger 風のモディファイア（遅延、スムージング、ステップ）を持つブリッジ出力、そして範囲、反転、クランプ、応答カーブ、スムージングのカットオフを決めるパラメータごとのマッピングです。
 - **オプション: 頬ふくらませと舌出し。** ゼロショットの SigLIP 2 ステージが、MediaPipe がうまく報告できない表情をスコア化します。
 - **プレビューとレポート。** 元動画とモデルを並べたプレビュー動画と、検出率・まばたき・レンジ使用率・警告を含む `report.json`。
-- **ノート PC + 計算ホストのワークフロー。** 標準ライブラリのみの `bin/v2l-remote` が SSH 経由で別のマシンでパイプラインを実行し、V2L Studio はそれを Live2D ビューアとウェブカメラ録画を備えたデスクトップアプリにまとめます。
+- **ノート PC + 計算ホストのワークフロー。** 標準ライブラリのみの `bin/v2l-remote` が SSH 経由で別のマシンでパイプラインを実行し、V2L Studio はそれを Live2D ビューア、ウェブカメラ録画、音声録音を備えたデスクトップアプリにまとめます。
 
 ## 仕組み
 
@@ -41,6 +42,7 @@ flowchart LR
         direction TB
         A["動画"] --> B["MediaPipe Face + Pose"]
         B --> C["画像空間の特徴量"]
+        A2["音声"] --> A3["Audio2Face-3D<br/>(任意)"]
     end
     subgraph S2["2 · 解析"]
         direction TB
@@ -67,6 +69,7 @@ flowchart LR
 | ステージ | ソース | 内容 |
 |---|---|---|
 | トラッキング | `src/v2l/signals.py` | MediaPipe Face Landmarker（ARKit 名のブレンドシェイプ 52 個、頭部変換、ランドマーク 478 点）と Pose Landmarker（肩）。 |
+| 音声 | `src/v2l/media.py`, `src/v2l/a2f.py`, `src/v2l/audio.py` | 任意。音声をモノラル 16 kHz にデコードし、ONNX Runtime 上で NVIDIA Audio2Face-3D v3.0 を実行して（ARKit 名のブレンドシェイプと目の回転、60 fps）、音声だけの入力では頭・体・まばたき（`idle.*`）を生成します。[docs/audio.md](docs/audio.md) を参照してください。 |
 | 特徴量 | `src/v2l/features.py` | 頭の yaw/pitch/roll、左右それぞれの目の開き、虹彩による視線、顎の開き、唇内側の隙間、口の幅、顔基準の口の横移動、肩の roll/yaw/高さ。 |
 | 頬 / 舌 | `src/v2l/rare.py` | 任意。N フレームごとに SigLIP 2 でゼロショットのスコアを付けます。 |
 | キャリブレーション | `src/v2l/calibrate.py` | クリップ全体から基準の表情（最も動きの少ない区間）とチャンネルごとの反応幅を求めます。 |
@@ -90,6 +93,7 @@ flowchart LR
 - Google Chrome がインストールされていること（Playwright が `channel="chrome"` で起動します）。
 - ffmpeg を別途用意する必要はありません。`imageio-ffmpeg` にバイナリが含まれています。
 - 任意: 頬/舌ステージ用の NVIDIA GPU。空きメモリが 3 GB 以上あれば GPU を使い、なければ CPU で、スコア付けするフレームあたり約 0.8 秒かかります。
+- 任意、音声入力用（`audio` extra）: ONNX Runtime 1.31。Linux と Windows の x86_64 では extra が CUDA 13 版をインストールします。NVIDIA ドライバ 580 以降が必要で、使えない場合は CPU にフォールバックします。macOS と ARM には CPU 版が入ります。約 10〜14 秒の話し声の処理には、CUDA GPU で約 2.5〜3 秒、Apple silicon の CPU で約 3〜5 秒かかります。
 
 **ノート PC**（リモートワークフローと V2L Studio 用）
 
@@ -110,11 +114,14 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 # optional: cheek puff / tongue out (installs torch + transformers)
 pip install -e '.[rare]'
+# optional: audio input (Audio2Live2D; installs onnxruntime)
+pip install -e '.[audio]'
 
 v2l run clip.mp4 --model ~/Models/MyModel --name hello
+v2l run speech.wav --model ~/Models/MyModel --name talk     # needs the audio extra
 ```
 
-結果は `v2l_out/`（`hello.motion3.json`、`hello.preview.mp4`、`hello.report.json`）に保存されます。`--no-install` を指定しない限り、モーションはモデルフォルダにもコピーされます。トラッカーモデルと Live2D Cubism Core は初回使用時にダウンロードされます。
+結果は `v2l_out/`（`hello.motion3.json`、`hello.preview.mp4`、`hello.report.json`）に保存されます。`--no-install` を指定しない限り、モーションはモデルフォルダにもコピーされます。トラッカーモデルと Live2D Cubism Core は初回使用時にダウンロードされます。音声の初回実行時には Audio2Face-3D モデル（約 725 MB、さらに identity ごとに約 17 MB）が `~/.cache/v2l/a2f/` にダウンロードされます。
 
 ### B. ノート PC + 計算ホスト
 
@@ -122,11 +129,12 @@ v2l run clip.mp4 --model ~/Models/MyModel --name hello
 export V2L_HOST=user@gpu-box          # required, no default
 export V2L_DIR=v2l                    # optional, relative to the remote home
 
-bin/v2l-remote setup                  # push code, create .venv, install, pre-download tracker models, Cubism Core and renderer libraries
+bin/v2l-remote setup                  # push code, create .venv, install (with the audio extra), pre-download tracker models, Audio2Face-3D models, Cubism Core and renderer libraries
 bin/v2l-remote run clip.mp4 --model ~/Models/MyModel --name hello --out ~/Downloads/v2l_out
+bin/v2l-remote run speech.wav --model ~/Models/MyModel --name talk
 ```
 
-`run` は動画とモデルフォルダをアップロードし、ホストで `v2l run` を実行して、結果を `~/Downloads/v2l_out/hello/` に取り込みます。`--no-install` を指定しない限り、モーションはローカルのモデルフォルダにもコピーされます。その他の `v2l run` オプション（`--preset`、`--config`、`--set`、ショートカットフラグ）も使えます。接続は `bin/v2l-remote check` で確認できます。コードを更新したら `setup` を再実行してください。ホストで頬/舌ステージを有効にするには、ホストの `V2L_DIR` 内で `.venv/bin/pip install -e '.[rare]'` を実行します。
+`run` は入力（動画または音声）とモデルフォルダをアップロードし、ホストで `v2l run` を実行して、結果を `~/Downloads/v2l_out/hello/` に取り込みます。`--no-install` を指定しない限り、モーションはローカルのモデルフォルダにもコピーされます。その他の `v2l run` オプション（`--preset`、`--config`、`--set`、`--audio`、ショートカットフラグ）も使えます。接続は `bin/v2l-remote check` で確認できます。コードを更新したら `setup` を再実行してください。ホストで頬/舌ステージを有効にするには、ホストの `V2L_DIR` 内で `.venv/bin/pip install -e '.[rare]'` を実行します。
 
 ### C. V2L Studio
 
@@ -148,10 +156,12 @@ V2L_MODEL=~/Models/MyModel V2L_HOST=user@gpu-box bin/v2l-studio
 ### `v2l run`
 
 ```text
-v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config FILE]...
+v2l run INPUT --model DIR --name NAME [--audio FILE] [--out DIR] [--preset NAME|FILE] [--config FILE]...
         [--set SECTION.NAME=VALUE]... [shortcut flags] [--mapping FILE] [--dump-signals]
         [--no-install] [--dry-run] [--json] [--progress text|json]
 ```
+
+`INPUT` は動画または音声ファイルです（`.wav .mp3 .m4a .aac .flac .ogg .oga .opus`、または映像ストリームを含まないコンテナ）。音声には `audio` extra が必要です。[音声入力](#音声入力)を参照してください。
 
 設定は次の順に適用され、後のものが優先されます。
 
@@ -162,6 +172,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 | オプション | デフォルト | 意味 |
 |---|---|---|
+| `--audio FILE` | なし | 動画入力に使う別の音声トラック。動画と同時に始まります。`audio.use=mouth` または `face`（`--audio-use`）が必要です。指定しなければ動画自身の音声を使います。 |
 | `--model DIR` | 必須 | Live2D モデルフォルダ（`*.model3.json`、任意で `*.vtube.json`）。 |
 | `--name NAME` | 必須 | 出力名。モーションは `NAME.motion3.json` になります。 |
 | `--out DIR` | `v2l_out` | 出力フォルダ。ファイルはこのフォルダに直接書き出されます。 |
@@ -193,6 +204,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `--no-preview` | `preview.enabled=false` | プレビュー動画を作りません。 |
 | `--no-rare` | `expressions.enabled=false` | 頬ふくらませ / 舌出しステージを省略します。 |
 | `--rare-stride N` | `expressions.stride` | N フレームごとに頬ふくらませ / 舌出しをスコア付けします（デフォルト 3）。 |
+| `--audio-use off\|mouth\|face` | `audio.use` | 動画の場合: `mouth` は顎・唇・舌を、`face` は顔全体を音声から取ります（頭・体・視線は動画のまま）。デフォルト `off`。 |
 
 </details>
 
@@ -212,7 +224,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 | イベント | フィールド |
 |---|---|
-| `stage` | `stage`: `probe`、`tracking`、`expressions`、`solving`、`writing`、`preview` のいずれか（`v2l-remote` は先頭に `upload`、末尾に `download` を追加します）。 |
+| `stage` | `stage`: `probe`、`tracking`、`expressions`、`audio`、`solving`、`writing`、`preview` のいずれか（`v2l-remote` は先頭に `upload`、末尾に `download` を追加します）。音声だけの実行では `tracking` と `expressions` を省略し、`audio` は音声を使うときだけ実行されます。 |
 | `progress` | `stage`、`done`、`total`。約 0.5 秒ごと、最後の値は必ず送られます。 |
 | `log` | `message`。トラッカーやライブラリの出力もこのイベントに包まれます。 |
 
@@ -221,11 +233,26 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | コード | エラー種別 |
 |---|---|
 | `0` | 成功 |
-| `1` | `runtime`, `remote` |
+| `1` | `runtime`, `remote`, `audio_unavailable`（`audio` extra または Audio2Face-3D モデルがない） |
 | `2` | `usage`, `config`, `input`, `invalid`（検証に通らないモーション、編集操作、マッピング、数式） |
-| `3` | `unusable_input`: 動画が開けない、または顔がトラッキングされない |
+| `3` | `unusable_input`: 動画が開けない、顔がトラッキングされない、または音声がないか無音 |
 | `4` | `remote_unreachable`: 計算ホストに接続できない |
 | `130` | `interrupted`, `cancelled` |
+
+#### 音声入力
+
+```bash
+v2l run speech.wav --model ~/Models/MyModel --name talk                                # audio only
+v2l run clip.mp4 --model ~/Models/MyModel --name talk --audio-use mouth                # mouth from the video's own sound
+v2l run clip.mp4 --audio voice.wav --audio-use face --model ~/Models/MyModel --name talk  # separate audio track
+```
+
+- **音声のみ。** NVIDIA Audio2Face-3D v3.0 が話し声を 60 fps の ARKit 名ブレンドシェイプに変換し、V2L は動画と同じ処理（強さ、入力カーブ、ブリッジ、マッピング、スタイル、フィルタ）を適用します。頭と体の動きは生成され（`idle.*`）、モデルがまばたきをしないためまばたきも生成されます。`input.start` と `input.end` で音声をトリミングできます。
+- **動画 + 音声。** `audio.use=mouth` は顎、唇、口の形、舌、頬ふくらませを音声から、それ以外を動画から取ります。`audio.use=face` は顔全体を音声から取り、頭、体、視線は動画のまま残します。音声を使うときは頬/舌ステージを省略します。
+- **デフォルト。** `audio.use` は `off` なので、オンにしない限り動画の実行は変わりません。`audio.use` を設定せずに `--audio` を指定すると使い方のエラーになります。
+- **選択項目。** 感情は検出せず、選びます: `audio.emotion`（デフォルト `neutral`）と `audio.emotion_strength`。`audio.identity` はモデルが学習した俳優（`Claire`、`James`、`Mark`）から 1 人を選びます。`audio.offset` は顔の動きを時間方向にずらします。
+
+選んだ区間が無音の場合や、音声が必要なのに動画に音がない場合は `unusable_input`（終了コード 3）で失敗します。`audio` extra がない場合やモデルのダウンロードに失敗した場合は `audio_unavailable`（終了コード 1）で失敗します。詳細、チャンネルの表、派生入力: [docs/audio.md](docs/audio.md)。
 
 ### その他の `v2l` コマンド
 
@@ -251,8 +278,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 | コマンド | 内容 |
 |---|---|
-| `setup` | `V2L_HOST` にコードを送り、`.venv` を作成して `pip install -e '.[test]'` を実行し、トラッカーモデル、Cubism Core、レンダラーライブラリを事前にダウンロードします。 |
-| `run VIDEO --model DIR --name NAME [--out DIR] [--no-install] [--json] [--progress text\|json] [v2l run options...]` | ホストで `v2l run` を実行し、結果を `OUT/NAME/` に取り込みます（`--out` のデフォルトは `V2L_OUT`、未設定なら `~/Downloads/v2l_out`）。 |
+| `setup` | `V2L_HOST` にコードを送り、`.venv` を作成して `pip install -e '.[test,audio]'` を実行し、トラッカーモデル、Audio2Face-3D モデル（3 つの identity すべて）、Cubism Core、レンダラーライブラリを事前にダウンロードします。 |
+| `run INPUT --model DIR --name NAME [--audio FILE] [--out DIR] [--no-install] [--json] [--progress text\|json] [v2l run options...]` | ホストで `v2l run` を実行し、結果を `OUT/NAME/` に取り込みます（`--out` のデフォルトは `V2L_OUT`、未設定なら `~/Downloads/v2l_out`）。`INPUT` は動画または音声ファイルです。 |
 | `probe --model DIR [--details] [--json]` | ローカルのモデルをホストでプローブします。 |
 | `mapping show --model DIR [--mapping FILE] [--json]` | ローカルのモデルの最終的なマッピングをホストで計算します。 |
 | `mapping inputs\|validate ...`、`bridge ...` | ノート PC で実行し、`V2L_HOST` は不要です。 |
@@ -266,6 +293,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 - `--preset`、`--config` ファイル、ショートカットフラグ、`--set` は**ノート PC 側で**解決されるため、ユーザープリセットやローカルファイルがそのまま使われます。実行ごとに最終的な設定を収めたファイルを 1 つ（ローカルのブリッジファイルがあればそれも）アップロードし、終了後に削除します。不正な設定はアップロード前にエラーになります。
 - `--dry-run` は接続せずにノート PC 上で実行されます。
 - `--mapping FILE` は設定ファイルと同様にアップロードされ、実行後に削除されます。`--dump-signals` を指定すると、シグナルファイルも結果と一緒に戻ってきます。
+- `--audio FILE` は入力と同様に `V2L_DIR` 内の `inputs/audio/` にアップロードされ、ホストの `v2l run` に渡されます。
 - `v2l-remote` を止める（Ctrl-C、SIGTERM、SIGHUP）とホスト上のジョブも止まり、その実行のファイルが削除され、終了コード 130 で終了します。
 
 ### 環境変数
@@ -282,7 +310,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 ## 設定とプリセット
 
-調整できる値はすべて 1 つのスキーマ `src/v2l/config.py` にまとまっています。10 セクション、67 項目です。CLI、V2L Studio、MCP サーバーが同じスキーマを読むため、設定の名前、範囲、意味はどこでも同じです。未知のキー、誤った型、範囲外の値はエラーになります。
+調整できる値はすべて 1 つのスキーマ `src/v2l/config.py` にまとまっています。12 セクション、90 項目です。CLI、V2L Studio、MCP サーバーが同じスキーマを読むため、設定の名前、範囲、意味はどこでも同じです。未知のキー、誤った型、範囲外の値はエラーになります。
 
 | セクション | 対象 | キーの例 |
 |---|---|---|
@@ -296,6 +324,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `style` | トラッキングした動きに加える演技スタイル。 | `name`, `blush_smile`, `head_gain` |
 | `filtering` | パラメータグループごとのゼロ位相ローパスフィルタ。 | `cutoff_scale`, `head`, `mouth` |
 | `preview` | 並べて表示するプレビュー動画。 | `enabled`, `width`, `height` |
+| `audio` | 音声で動かす顔（NVIDIA Audio2Face-3D）。 | `use`, `identity`, `emotion`, `emotion_strength` |
+| `idle` | 動画がないときに生成する頭・体・まばたき。 | `head_amplitude`, `speech_nods`, `blinks` |
 
 <details>
 <summary>セクションごとの全設定名</summary>
@@ -312,14 +342,37 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `style` | `name`, `mouth_form_bias`, `eye_smile_max`, `blush_rest`, `blush_smile`, `eye_open_scale`, `head_gain`, `sparkle_param`, `sparkle_smile`, `sparkle_hold` |
 | `filtering` | `despike`, `cutoff_scale`, `head`, `body`, `eyeball`, `eye_open`, `brows`, `smile`, `mouth`, `blush`, `sparkle`, `other` |
 | `preview` | `enabled`, `width`, `height` |
+| `audio` | `use`, `identity`, `emotion`, `emotion_strength`, `strength`, `upper_face_strength`, `lower_face_strength`, `blink_strength`, `eyeballs_strength`, `saccade_strength`, `tongue_strength`, `lip_open_offset`, `offset`, `seed`, `device` |
+| `idle` | `head_amplitude`, `head_speed`, `speech_nods`, `body_amplitude`, `blinks`, `blink_rate`, `gaze`, `seed` |
 
 </details>
 
 型、デフォルト、範囲、単位、ヘルプは `v2l config schema`（または標準ライブラリだけで動く `python -m v2l.config schema`）で確認できます。
 
+<details>
+<summary>主な <code>audio</code> と <code>idle</code> の設定</summary>
+
+| 設定 | デフォルト | 意味 |
+|---|---|---|
+| `audio.use` | `off` | 動画入力の場合: `off`、`mouth`（顎・唇・舌を音声から）、`face`（顔全体）。音声だけの入力では常に音声を使います。 |
+| `audio.identity` | `Claire` | Audio2Face-3D が学習した俳優のうち、顔がまねる相手: `Claire`、`James`、`Mark`。 |
+| `audio.emotion` | `neutral` | `neutral`、`amazement`、`anger`、`cheekiness`、`disgust`、`fear`、`grief`、`joy`、`outofbreath`、`pain`、`sadness`。 |
+| `audio.emotion_strength` | `0.6` | 感情の出る強さ（0〜1）。 |
+| `audio.strength` | `1.0` | 音声で動かす顔の全体的な強さ（0〜2）。 |
+| `audio.offset` | `0` 秒 | 音声で動かす顔を時間方向にずらします（-1〜1 秒）。正の値で遅らせます。 |
+| `audio.device` | `auto` | `auto`（使えれば NVIDIA GPU）、`cuda`、`cpu`。 |
+| `idle.head_amplitude` | `4` 度 | 生成する頭の揺れの大きさ。 |
+| `idle.speech_nods` | `1.0` | 話し声の音量に合わせた小さなうなずきと傾き（0〜3）。 |
+| `idle.body_amplitude` | `1.0` | 生成した頭に追従する体の揺れ（0〜3）。 |
+| `idle.blinks` | `procedural` | `procedural` はランダムなまばたきを加え（Audio2Face-3D v3.0 はまばたきしません）、`model` はモデル自身の目の閉じだけを残し、`off` は目を開いたままにします。`audio.use=face` でも使われます。 |
+| `idle.blink_rate` | `15` 回/分 | 手続き的なまばたきの平均頻度。 |
+| `idle.gaze` | `model` | `model` は音声モデルの目の動きを使い、`center` は目を正面に保ちます。 |
+
+</details>
+
 **変更の影響範囲。** 各設定には `affects` の値があります。
 
-- `tracking`: 動画を再トラッキングします（`input.*`、`expressions.enabled`、`expressions.stride`）。
+- `tracking`: 入力を再解析します（`input.*`、`expressions.enabled`、`expressions.stride`、`audio.*`）。Audio2Face-3D の出力は `~/.cache/v2l/a2f/` に別途キャッシュされるため、`audio.use`、`audio.offset`、`audio.device` を変えてもそれを再利用します。
 - `solve`: キャッシュ済みのトラッキング結果を再利用し、モーションだけを再計算します（ほとんどの設定）。トラッキングのキャッシュは `v2l` を実行するマシンの `~/.cache/v2l` にあるため、同じクリップを solve 設定だけ変えて再実行するとトラッキングは省略されます。
 - `output`: プレビューの描画だけが変わります（`preview.*`）。
 
@@ -430,7 +483,7 @@ AI エージェントは 2 通りの方法で V2L を操作できます。`--jso
 
 **インストール**
 
-- ローカルモード（このマシンでトラッキング）: `pip install -e '.[mcp]'` のあと `v2l mcp` を実行します。
+- ローカルモード（このマシンでトラッキング）: `pip install -e '.[mcp]'`（音声入力には `'.[mcp,audio]'`）のあと `v2l mcp` を実行します。
 - リモートモード（ノート PC で動かし、ジョブは `v2l-remote` 経由で `V2L_HOST` 上で実行）: `bin/v2l-mcp` を使います。必要なのは `python3`、`rsync`、`ssh` と `mcp` パッケージだけで、`mcp` がなければ [uv](https://docs.astral.sh/uv/) が用意します。
 
 `V2L_HOST` が設定されていれば、サーバーは常にリモートモードで動きます。
@@ -471,13 +524,15 @@ JSON で設定するクライアントの場合:
 | `v2l_motion_info(motion)` | モーションのカーブ、セグメントの種類、数、問題点。 |
 | `v2l_motion_read(motion, curves?)` | モーションを編集可能な JSON として返します。 |
 | `v2l_motion_edit(motion, operations, out, overwrite?, ranges?)` | 編集操作を適用し、結果を新しいモーションとして書き出します。 |
-| `v2l_generate(video, model, name, preset?, settings?, mapping?, preview?, out_dir?, install?, job?, wait_seconds?)` | 生成ジョブを開始または再開します。 |
+| `v2l_generate(video?, model, name, preset?, settings?, mapping?, preview?, out_dir?, install?, job?, wait_seconds?, audio?)` | 動画、音声ファイル、またはその両方から生成ジョブを開始または再開します。 |
 | `v2l_job_status(job, wait_seconds?)` | ジョブを待ち、進捗または結果を返します。 |
 | `v2l_jobs()` | 既知のすべてのジョブ。 |
 | `v2l_job_cancel(job)` | 待機中または実行中のジョブを止めます（リモートモードではホスト上のプロセスも）。 |
 | `v2l_install_motion(motion, model, overwrite?)` | モーションをモデルフォルダにコピーします（`install` ツールセットのみ）。 |
 
-**長いジョブ。** `v2l_generate` は進捗通知を送りながら最大 45 秒（デフォルト 40 秒。一般的なクライアントの 60 秒のリクエストタイムアウトより短い）待ち、結果かジョブハンドルを返します。ハンドルを渡して `v2l_job_status` を呼べば待ち続けられます。同じリクエスト（同じ動画とモデルの内容、設定、名前、出力フォルダ）をもう一度送ると、2 回目の実行は始まらず同じジョブが再開されます。ジョブは 1 つずつ実行され、後のジョブは `queued` になります。ジョブの記録は `~/.cache/v2l/jobs/` に保存されます。
+**長いジョブ。** `v2l_generate` は進捗通知を送りながら最大 45 秒（デフォルト 40 秒。一般的なクライアントの 60 秒のリクエストタイムアウトより短い）待ち、結果かジョブハンドルを返します。ハンドルを渡して `v2l_job_status` を呼べば待ち続けられます。同じリクエスト（同じ動画/音声とモデルの内容、設定、名前、出力フォルダ）をもう一度送ると、2 回目の実行は始まらず同じジョブが再開されます。ジョブは 1 つずつ実行され、後のジョブは `queued` になります。ジョブの記録は `~/.cache/v2l/jobs/` に保存されます。
+
+**音声。** `audio` だけ（または `video` として渡した音声ファイル）の場合は、話し声で顔を動かし、頭・体・まばたきを生成します。`video` と `audio` を両方渡すと、`settings.audio.use` が音声から取るチャンネルについて、動画自身の音声の代わりにその音声を使います。設定で `audio.use` が `off` のままなら、サーバーが `mouth` に設定します。`settings.audio.use` を `mouth` または `face` にした動画だけの場合は、動画自身の音声を使います。ジョブを実行するホストには `audio` extra が必要です（`bin/v2l-remote setup` がインストールします）。
 
 **サーバーのフラグ**
 
@@ -507,11 +562,12 @@ JSON で設定するクライアントの場合:
 V2L Studio（`bin/v2l-studio`）は、片側に Live2D ビューア、もう片側に作成パネルを備えた Electron デスクトップアプリです。
 
 - **ビューア。** フレーミングのプリセット、ドラッグとズーム、物理演算の切り替え、スクラブバー。**Space** で再生を切り替えます。テクスチャは 4K に制限した表示用コピーで表示し、モデルフォルダは変更しません。
-- **作成パネル。** 動画を選ぶかドロップするか、ウェブカメラでテイクを録画します。モーション名、チューニングプリセット、スタイルを設定し、必要に応じてトリミング、基準表情の区間、頬/舌の認識、左右反転を指定します。⋯ メニューから、これらをデフォルトとして保存、リセット、または実行内容を `v2l run` コマンドとしてコピーできます。
-- **生成。** 番号付きのステージ一覧（upload、probe、tracking、expressions、solving、writing、preview、download）と、トラッキングと表情スコア付けのフレーム進捗を表示し、生のログも確認できます。失敗は原因ごとに表示され（使える顔がない、ホストに接続できない、設定が不正、取り消し）、取り消し時には確認があります。完了した結果は、元動画と同期して比較する、モデルフォルダに保存する（上書き前に確認）、**この設定を使用** で設定を読み込み直す、**現在の設定で再実行** で番号付きの名前で再生成する、といった操作ができます。
+- **作成パネル。** 動画か音声ファイルを選ぶかドロップするか、ウェブカメラのテイクまたは音声のテイク（**声を録音**）を録ります。音声ソースには再生とスクラブができる波形が表示されます。モーション名、チューニングプリセット、スタイルを設定し、必要に応じてトリミング、基準表情の区間、頬/舌の認識、左右反転を指定します。音声が関わるときは **音声** グループが表示されます。音声付きの動画では **音声トラックを使う** が `audio.use`（オフ、口は音声から、顔は音声から）を設定し、**別の音声ファイルを使う** が `--audio` を渡します。音声を使うときは、感情、感情の強さ、話し方（`audio.identity`）を設定できます。⋯ メニューから、これらをデフォルトとして保存、リセット、または実行内容を `v2l run` コマンドとしてコピーできます。
+- **生成。** 番号付きのステージ一覧（upload、probe、tracking、expressions、audio、solving、writing、preview、download）と、トラッキングと表情スコア付けのフレーム進捗を表示し、生のログも確認できます。失敗は原因ごとに表示され（使える顔がない、使える話し声がない、音声モデルが使えない、ホストに接続できない、設定が不正、取り消し）、取り消し時には確認があります。完了した結果は、元の動画や音声と同期して比較する、モデルフォルダに保存する（上書き前に確認）、**この設定を使用** で設定を読み込み直す、**現在の設定で再実行** で番号付きの名前で再生成する、といった操作ができます。結果カードにはソースの種類が表示され、音声の場合は話し声の割合、レベル、感情、話し方、音声モデルのデバイスも表示されます。
 - **モーションエディタ。** **モーションを編集**（モーション一覧の横、または結果にあります）で、ビューアの下にカーブエディタが開き、ビューアと元動画が再生ヘッドに追従します。キーの選択・ドラッグ・追加、ベジェハンドルの編集、区間のリニア・ベジェ・ステップ・逆ステップの切り替え、自動・フラットの接線、インスペクタでの再フィット・拡大縮小・トリミング・時間調整ができます。すべての変更は取り消しとやり直しに対応し、ポップオーバーにキーボードとマウスのショートカットがまとめてあります。新しいモーションとして保存、確認のうえ上書き保存、またはモデルフォルダに保存します。
 - **マッピングエディタ。** モデルヘッダーの **マッピング**、または設定 → 生成のデフォルトの **パラメータのマッピング** で、3 層がタブ（入力、ブリッジ出力、パラメータ）として開きます。**変更をプレビュー** は保存前のマッピングで直前の結果をトラッキングを再利用して作り直して再生し、**残す** か **破棄** でその結果を残すかを決めます。保存したマッピングは以降のすべての実行に渡されます。
-- **ウェブカメラのテイク。** 3-2-1 のカウントダウンと無表情の合図があり、その区間が基準表情の区間になります。テイクの長さは 2.3〜60 秒で、マイクはオプトインです。テイクは `<V2L_OUT>/recordings/` に保存されます。
+- **ウェブカメラのテイク。** 3-2-1 のカウントダウンと無表情の合図があり、その区間が基準表情の区間になります。テイクの長さは 2.3〜60 秒で、マイクはオプトインです。音声付きのテイクでは口を音声から動かすこともできます。テイクは `<V2L_OUT>/recordings/` に保存されます。
+- **音声のテイク。** **声を録音** でマイクを選び、入力レベルを表示し、カウントダウンのあと 1〜60 秒録音します。テイクは `<V2L_OUT>/recordings/` に `.m4a` または `.opus`（`ffmpeg` がなければ WAV）として保存されます。
 - **言語とテーマ。** 英語、韓国語、日本語、簡体字中国語と、システム・ライト・ダークのテーマ。ニュートラルな色は Adobe Spectrum 2 から取り、アクセントカラーはライトテーマでコーラル（`#FD7688`）、ダークテーマで Spectrum のマゼンタです。
 
 ### 設定ウィンドウ
@@ -523,11 +579,11 @@ V2L Studio（`bin/v2l-studio`）は、片側に Live2D ビューア、もう片�
 | 一般 | 言語、テーマ（システム / ライト / ダーク）、デフォルトのモデルフォルダ、起動時に前回のモデルを開く。 |
 | 計算 | **リモートサーバー**（ホスト、リモートディレクトリ、**接続をテスト**、**サーバーを設定**）または **このコンピュータ**（`v2l` 実行ファイルのパス、**テスト**、**このコンピュータを設定**）。 |
 | 出力 | 出力フォルダ、同じ結果名があるときの扱い、モデルフォルダへの自動保存（デフォルトはオフ）、プレビュー動画（Studio ではデフォルトでオフ）。 |
-| 生成のデフォルト | デフォルトのプリセット、スタイル、ループ、左右反転、頬/舌と間隔、フレームレート、フェード、ブリッジプリセット、カーブの補間、パラメータのマッピング。 |
-| チューニング | スキーマのすべての設定を [設定とプリセット](#設定とプリセット) と同じグループで表示します。詳細項目はトグルの後ろにあり、項目とグループごとにリセットでき、トラッキングを変える項目には「動画を再トラッキング」のバッジが付きます。 |
+| 生成のデフォルト | デフォルトのプリセット、スタイル、ループ、左右反転、頬/舌と間隔、フレームレート、フェード、ブリッジプリセット、カーブの補間、パラメータのマッピング、音声トラックの使い方（`audio.use`）、感情、感情の強さ、話し方。 |
+| チューニング | スキーマのすべての設定を [設定とプリセット](#設定とプリセット) と同じグループで表示します。**音声**（`audio.*`）と **生成する動き**（`idle.*`）も含みます。詳細項目はトグルの後ろにあり、項目とグループごとにリセットでき、トラッキングを変える項目には「ソースを再解析」のバッジが付きます。 |
 | プリセット | CLI と共有する内蔵プリセットとユーザープリセット: 適用、現在のチューニングを保存、名前変更、削除、インポート、エクスポート。 |
 | ビューア | 物理演算、4K テクスチャ、フレーミング、ループ、同期のデフォルト。 |
-| カメラ | デフォルトのカメラと音声を録音するかどうか。 |
+| カメラ | デフォルトのカメラと、ウェブカメラのテイクで音声を録音するかどうか。 |
 | エージェントと CLI | コピーできる `claude mcp add` と `codex mcp add` のコマンド、MCP サーバー用のクライアント JSON、そして現在の設定を 1 つにまとめた `v2l run` コマンド。実行ファイル、ホスト、出力フォルダが入力済みです。 |
 | 詳細 | ログのフィルタ、モデルキャッシュの削除、全設定のエクスポートとインポート、すべてリセット。 |
 | 情報 | バージョン、ライセンス、サードパーティの告知、パスやホスト名を含まない診断情報のコピー。 |
@@ -536,7 +592,7 @@ V2L Studio（`bin/v2l-studio`）は、片側に Live2D ビューア、もう片�
 
 **保存。** 変更はアプリのデータフォルダ（`v2l-studio`）の `settings.json` に即座に保存され、デフォルトと異なる値だけが記録されます。優先順位: スキーマのデフォルト < Studio の設定 < 環境変数 < 作成パネルの実行ごとの値。環境変数（`V2L_HOST`、`V2L_DIR`、`V2L_OUT`、`V2L_MODEL`）で決まった値はロックされた状態で表示されます。
 
-**実行場所。** ビューア、録画、ファイル処理はノート PC で実行されます。トラッキング・解析・プローブは、設定 → 計算で選んだとおり、リモートホスト（`bin/v2l-remote` 経由）またはこのコンピュータ（ローカルの `v2l` 経由）で実行されます。計算環境を設定するまでは接続ボタンが **生成を設定** と表示され、押すと設定 → 計算が開きます。
+**実行場所。** ビューア、録画、ファイル処理はノート PC で実行されます。トラッキング・Audio2Face-3D・解析・プローブは、設定 → 計算で選んだとおり、リモートホスト（`bin/v2l-remote` 経由）またはこのコンピュータ（ローカルの `v2l` 経由）で実行されます。計算環境を設定するまでは接続ボタンが **生成を設定** と表示され、押すと設定 → 計算が開きます。
 
 ## 出力ファイル
 
@@ -545,9 +601,9 @@ V2L Studio（`bin/v2l-studio`）は、片側に Live2D ビューア、もう片�
 | ファイル | 内容 |
 |---|---|
 | `hello.motion3.json` | Cubism モーション。デフォルトは線形セグメント（`output.interpolation=bezier` では制限付きベジェ）で、簡略化と検証を済ませています。 |
-| `hello.preview.mp4` | 元動画と、物理演算をオンにしたモデルの描画を並べたもの（`--no-preview` で省略）。 |
-| `hello.report.json` | 顔とポーズの検出率、最長のトラッキング欠損、使用した基準表情の区間、まばたき、パラメータごとのレンジ使用率、最終的なマッピング、マッピングのメモ、警告。 |
-| `hello.signals.json` | フレームごとのトラッキング入力とブリッジ出力（`--dump-signals` のときのみ）。 |
+| `hello.preview.mp4` | 元動画と、物理演算をオンにしたモデルの描画を並べたもの（`--no-preview` で省略）。音声だけの入力ではモデルのみで、音声がモーションを動かすときはプレビューにその音声が入ります。 |
+| `hello.report.json` | 顔とポーズの検出率、最長のトラッキング欠損、使用した基準表情の区間、まばたき、パラメータごとのレンジ使用率、最終的なマッピング、マッピングのメモ、警告。さらに `source`（`kind`: `video`、`audio`、`video+audio` と `use`）、`audio`（ファイル、長さ、レベル、話し声の割合、Audio2Face-3D の identity、感情、デバイス。動画のみでは null）、`idle`（生成した動き。生成しないときは null）も含みます。 |
+| `hello.signals.json` | フレームごとのトラッキング入力とブリッジ出力（`--dump-signals` のときのみ）。音声がある場合は、各入力の出どころとフレームごとの音量も含みます。 |
 
 デフォルトではモーションはモデルフォルダにもコピーされ、VTube Studio がそのモデルのアニメーションとして一覧に表示します。
 
@@ -558,6 +614,7 @@ V2L Studio（`bin/v2l-studio`）は、片側に Live2D ビューア、もう片�
 - 少し大げさに演技してください。アバターはカメラに映ったものしか表現できません。
 - 左右反転で録画された映像（自撮りカメラ）には `--flip` を指定してください。
 - `--start` と `--end` で、テイクの前後の準備時間を切り落としてください。
+- 音声の場合: 声は 1 人分、マイクの近くで、音楽や背景の話し声なしで録ってください。試行中は長い録音を `--start` と `--end` でトリミングしてください。
 
 ## 制限事項
 
@@ -568,6 +625,10 @@ V2L Studio（`bin/v2l-studio`）は、片側に Live2D ビューア、もう片�
 - オフライン専用です。リアルタイムトラッキングのモードはありません。
 - 1 クリップにつき演者は 1 人です。
 - マッピングファイルで追加したパラメータはレンダープローブで計測されないため、向きは自動では修正されません。
+- 音声入力: 顔は話し声に従うもので、話し手の実際の表情ではありません。感情は検出せず選びます（`audio.emotion`）。NVIDIA の Audio2Emotion は使いません。
+- 音声入力: Audio2Face-3D v3.0 はまばたきをせず（`idle.blinks` がデフォルトで手続き的なまばたきを加えます）、eyeLook*、jawLeft/Right、mouthLeft/Right、tongueOut は動きません。視線はモデルの目の回転から取ります。
+- 音声入力からは頭の姿勢は得られません。音声だけの入力では、頭と体の動きは演技ではなく生成されたものです（`idle.*`）。
+- 歌、叫び声、大きな音楽、複数の声では口の形の信頼性が下がります。CPU では長いクリップは実時間より遅くなります。
 
 ## 開発
 
@@ -603,7 +664,7 @@ V2L_REGRESS_MODEL=/path/to/model bin/v2l-remote regress
 
 ## サードパーティ製コンポーネントとライセンス
 
-V2L 自体のコードは MIT ライセンスです（[LICENSE](LICENSE)）。V2L Studio にインラインで埋め込んだ 21 個の Lucide アイコンを除き、サードパーティのファイルはパッケージマネージャーでインストールされるか初回使用時にダウンロードされ、このリポジトリには含まれていません。
+V2L 自体のコードは MIT ライセンスです（[LICENSE](LICENSE)）。V2L Studio にインラインで埋め込んだ 27 個の Lucide アイコンと、[`src/v2l/a2f.py`](src/v2l/a2f.py) にある NVIDIA の MIT ライセンスの Audio2Face-3D SDK コードの Python 移植を除き、サードパーティのファイルはパッケージマネージャーでインストールされるか初回使用時にダウンロードされ、このリポジトリには含まれていません。
 
 | コンポーネント | ライセンス |
 |---|---|
@@ -612,20 +673,25 @@ V2L 自体のコードは MIT ライセンスです（[LICENSE](LICENSE)）。V2
 | pixi-live2d-display 0.4.0 (`cubism4.min.js`) | MIT。Live2D Open Software License が適用される Cubism Framework を同梱 |
 | MediaPipe Face / Pose Landmarker モデル | Apache-2.0 |
 | SigLIP 2 (`google/siglip2-so400m-patch14-384`) | Apache-2.0 |
-| [Lucide](https://lucide.dev) アイコン（21 個、V2L Studio にインライン） | ISC。うち 7 個は Feather 由来（MIT） |
+| NVIDIA Audio2Face-3D v3.0 モデル（`nvidia/Audio2Face-3D-v3.0`、音声入力のみ） | NVIDIA Open Model License（初回使用時に Hugging Face からダウンロードし、SHA-256 で固定） |
+| Audio2Face-3D SDK（`src/v2l/a2f.py` に移植した部分） | MIT |
+| ONNX Runtime（`onnxruntime` / `onnxruntime-gpu`、`audio` extra） | MIT。`[cuda,cudnn]` extra は NVIDIA の規約に基づく NVIDIA CUDA と cuDNN のランタイム wheel をインストールします |
+| [Lucide](https://lucide.dev) アイコン（27 個、V2L Studio にインライン） | ISC。うち 7 個は Feather 由来（MIT） |
 
-pixi のファイルは `src/v2l/web/assets.json` で SHA-256 により固定されています。詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。サードパーティのブリッジプリセットは含まれていません。
+pixi のファイルは `src/v2l/web/assets.json` で SHA-256 により固定されています。詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を、音声モードについては [docs/audio.md](docs/audio.md) を参照してください。サードパーティのブリッジプリセットは含まれていません。
 
 **利用者の責任。**
 
 - Live2D モデルを使った作品を公開するには、Live2D 独自のライセンス（例: Live2D Publication License）が必要な場合があります。ご自身のケースについて Live2D の規約を確認してください。
 - 動かすモデルについての権利が必要です。
-- 処理する動画に映っている人の同意が必要です。
+- 処理する動画や音声録音に含まれる人の同意が必要です。
+- Audio2Face-3D モデルをダウンロードすることは、NVIDIA Open Model License に同意することを意味します。モデルファイルが V2L と一緒に配布されることはなく、モデルを使って生成したモーションに含まれるのはパラメータのカーブで、モデルのデータではありません。
 
 ## 謝辞
 
 - 顔とポーズのトラッキング: [MediaPipe](https://github.com/google-ai-edge/mediapipe)。
 - 描画: [pixi-live2d-display](https://github.com/guansss/pixi-live2d-display) と [PixiJS](https://github.com/pixijs/pixijs)。
+- 話し声による顔のアニメーション: [NVIDIA Audio2Face-3D](https://huggingface.co/nvidia/Audio2Face-3D-v3.0) とその [SDK](https://github.com/NVIDIA/Audio2Face-3D-SDK)。その実行: [ONNX Runtime](https://onnxruntime.ai/)。
 - モデル形式とランタイム: [Live2D Cubism](https://www.live2d.com/)。
 - V2L Studio のアイコン: [Lucide](https://lucide.dev)。テーマのデザイントークン: [Adobe Spectrum 2](https://spectrum.adobe.com/)。
 - ブリッジのインタプリタが実装している [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) 数式言語とディレイバッファ。マッピングエディタの参考にしました。

@@ -2,14 +2,15 @@
 
 Standard library only, so it runs from any Python 3.11+ without the heavy dependencies.
 
-  v2l-remote setup                                   install/refresh v2l on the server
-  v2l-remote run VIDEO --model DIR --name NAME [--config FILE]... [--set k=v]... [--json]
-                                                     track + solve + preview on the server;
-                                                     results land in --out/NAME, the motion is
-                                                     also copied into the local model folder
-                                                     (--no-install: not); --config and --mapping
-                                                     files are uploaded; other options go to
-                                                     `v2l run`
+  v2l-remote setup                                   install/refresh v2l on the server (with the
+                                                     `audio` extra; downloads the Audio2Face-3D models)
+  v2l-remote run INPUT --model DIR --name NAME [--audio FILE] [--config FILE]... [--set k=v]... [--json]
+                                                     track (video) or run Audio2Face-3D (audio) +
+                                                     solve + preview on the server; results land
+                                                     in --out/NAME, the motion is also copied into
+                                                     the local model folder (--no-install: not);
+                                                     INPUT, --audio, --config and --mapping files
+                                                     are uploaded; other options go to `v2l run`
   v2l-remote probe --model DIR [--details] [--json]  probe a local model on the server
   v2l-remote mapping show --model DIR [--mapping FILE] [--json]
                                                      effective mapping of a local model, computed
@@ -74,10 +75,10 @@ def push_code() -> None:
 def setup() -> None:
     push_code()
     ssh(f"set -e; cd {shlex.quote(RDIR)}; [ -x .venv/bin/python ] || python3 -m venv .venv; "
-        ".venv/bin/pip install -q -e '.[test]'; "
+        ".venv/bin/pip install -q -e '.[test,audio]'; "
         ".venv/bin/python -c 'from v2l.signals import tracker_model as t; from v2l.render import cubism_core as c; "
-        "from v2l.assets import web_assets as w; t(\"face_landmarker.task\"); t(\"pose_landmarker_full.task\"); w(); "
-        "print(\"core:\", c())'")
+        "from v2l.assets import web_assets as w; from v2l import a2f; t(\"face_landmarker.task\"); "
+        "t(\"pose_landmarker_full.task\"); w(); a2f.download(); print(\"core:\", c()); print(\"audio:\", a2f.available())'")
     print(f"v2l ready on {HOST}:{RDIR}")
 
 
@@ -130,21 +131,24 @@ def _upload_model(model: pathlib.Path) -> str:
 def resolve_settings(a: argparse.Namespace, passthrough: list[str]):
     """Settings for `run`, resolved HERE with the same rules as `v2l run` (so --preset finds the
     laptop's presets and every file path is read locally): returns (cli namespace, Config)."""
-    ns = cli._parser().parse_args(["run", a.video, "--model", a.model, "--name", a.name, *passthrough])
+    ns = cli._parser().parse_args(["run", a.input, "--model", a.model, "--name", a.name, *passthrough])
     return ns, cli.settings(ns)
 
 
 def run(a: argparse.Namespace, passthrough: list[str]) -> int:
     say = _say(a)
     ns, cfg = resolve_settings(a, passthrough)
-    video, model = cli.check_inputs(a.video, a.model, cfg)
+    video, model = cli.check_inputs(a.input, a.model, cfg, ns.audio)
     overrides = cli.load_mapping(ns.mapping, cfg.bridge.preset)  # checked here, before any upload
     out = pathlib.Path(a.out).expanduser().resolve() / a.name
     files = cli.planned_files(out, a.name, cfg, ns.dump_signals)
     installed = None if a.no_install else model / f"{a.name}.motion3.json"
     if ns.dry_run:
+        from .media import plan
+
         res = {"ok": True, "dry_run": True, "name": a.name, "out_dir": str(out), "files": files,
-               "installed": str(installed) if installed else None, "settings": to_dict(cfg), "mapping": overrides}
+               "installed": str(installed) if installed else None, "settings": to_dict(cfg), "mapping": overrides,
+               "source": plan(video, ns.audio, cfg.audio.use)}
         print(json.dumps(res, ensure_ascii=False, indent=None if a.json else 1), flush=True)
         return 0
     rid = f"{re.sub(r'[^A-Za-z0-9_-]', '_', a.name)}-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
@@ -166,6 +170,11 @@ def run(a: argparse.Namespace, passthrough: list[str]) -> int:
     rout = f"outputs/{rid}"
     cmd = [".venv/bin/v2l", "run", rvideo, "--model", rmodel, "--name", a.name, "--out", rout, "--no-install",
            "--config", rconfig]
+    if ns.audio:  # a separate audio track travels with the run
+        raudio = f"inputs/audio/{pathlib.Path(ns.audio).name}"
+        ssh(f"mkdir -p {shlex.quote(RDIR)}/inputs/audio")
+        rsync(str(pathlib.Path(ns.audio).expanduser().resolve()), f"{HOST}:{RDIR}/{raudio}")
+        cmd += ["--audio", raudio]
     if overrides is not None:  # like the settings: one file per run, removed after it
         rmap = f"inputs/configs/{rid}-mapping.json"
         _upload_json(overrides, rmap)
@@ -205,6 +214,12 @@ def run(a: argparse.Namespace, passthrough: list[str]) -> int:
         for k in ("preview", "signals"):
             if not result["files"].get(k):
                 files[k] = None
+        summary = result.get("summary") or {}
+        if summary.get("source"):  # the caller's paths, not the server's
+            src = summary["source"]
+            summary["source"] = {**src, "video": str(video) if src.get("video") else None,
+                                 "audio": (str(pathlib.Path(ns.audio).expanduser().resolve()) if ns.audio else
+                                           str(video) if src.get("kind") == "audio" else None)}
         print(json.dumps({"ok": True, "name": a.name, "out_dir": str(out), "files": files,
                           "installed": str(installed) if installed else None,
                           "summary": result.get("summary")}, ensure_ascii=False), flush=True)
@@ -327,7 +342,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("check", help="is the compute host reachable and set up?").add_argument("--json", action="store_true")
     r = sub.add_parser("run", help="other `v2l run` options (--preset, --config, --set, shortcut flags, --dry-run) "
                                    "are resolved here and sent as one settings file")
-    r.add_argument("video")
+    r.add_argument("input", metavar="INPUT", help="video, or audio file for an audio-driven face; --audio FILE adds "
+                                                  "a separate audio track to a video (uploaded too)")
     r.add_argument("--model", required=True)
     r.add_argument("--name", required=True)
     r.add_argument("--out", default=os.environ.get("V2L_OUT", "~/Downloads/v2l_out"),
@@ -412,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         return fail("config", str(e), 2)
     except MappingError as e:
         return fail("invalid", str(e), 2)
-    except (FileNotFoundError, NotADirectoryError) as e:
+    except (FileNotFoundError, NotADirectoryError, ValueError) as e:
         return fail("input", str(e), 2)
     except KeyboardInterrupt:
         return fail("interrupted", "interrupted", 130)

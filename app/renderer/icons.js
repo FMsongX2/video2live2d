@@ -1,6 +1,7 @@
 // Inline SVG icons that follow currentColor. Lucide (ISC license, see THIRD_PARTY_NOTICES.md):
 // undo-2, redo-2, plus, trash-2, magnet, scan, eye, eye-off, circle-help, sliders-horizontal,
-// spline, x, copy, clipboard-paste, rotate-ccw, timer, waves. The interpolation glyphs (linear,
+// spline, x, copy, clipboard-paste, rotate-ccw, timer, waves, folder-open, video, mic,
+// audio-lines, play, pause. The interpolation glyphs (linear,
 // bezier, stepped, inverse) are V2L's own drawings; "stepped" also marks the Steps modifier.
 const svg = (inner, extra = "") => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${inner}</svg>`;
 
@@ -25,6 +26,12 @@ export const ICONS = {
   reset: svg('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>'),
   timer: svg('<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>'),
   waves: svg('<path d="M2 12q2.5 2 5 0t5 0 5 0 5 0"/><path d="M2 19q2.5 2 5 0t5 0 5 0 5 0"/><path d="M2 5q2.5 2 5 0t5 0 5 0 5 0"/>'),
+  folderOpen: svg('<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>'),
+  video: svg('<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>'),
+  mic: svg('<path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/>'),
+  audioLines: svg('<path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/>'),
+  play: svg('<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>'),
+  pause: svg('<rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/>'),
   stepped: svg('<path d="M4 18h16V6"/><rect x="2" y="16" width="4" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="18" y="4" width="4" height="4" rx="1" fill="currentColor" stroke="none"/>'),
   inverse_stepped: svg('<path d="M4 18V6h16"/><rect x="2" y="16" width="4" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="18" y="4" width="4" height="4" rx="1" fill="currentColor" stroke="none"/>'),
 };

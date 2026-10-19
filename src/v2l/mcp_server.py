@@ -1,4 +1,4 @@
-"""MCP server: lets AI agents turn videos into Live2D motions with v2l (stdio transport).
+"""MCP server: lets AI agents turn videos and speech audio into Live2D motions with v2l (stdio transport).
 
   v2l mcp [--read-only] [--toolsets inspect,generate,install] [--allow-dir DIR]...
   bin/v2l-mcp [same flags]      from a checkout; needs only python3 and `mcp` (or uv)
@@ -13,7 +13,7 @@ light and a job can be cancelled.
 Long jobs follow the bounded-wait pattern: v2l_generate starts (or resumes) a job and waits at
 most wait_seconds (<= 45, below the 60 s request timeout of common clients) while sending progress
 notifications, then returns either the result or a job handle for v2l_job_status. A retry with
-the same request (same video and model content, settings, name and output folder) resumes the
+the same request (same video/audio and model content, settings, name and output folder) resumes the
 existing job instead of starting a second run. Job records persist in ~/.cache/v2l/jobs/.
 
 Everything except build_server() and main() is standard library, so the job layer can be tested
@@ -47,8 +47,8 @@ TOOLSETS = ("inspect", "generate", "install")
 DEFAULT_TOOLSETS = ("inspect", "generate")
 FINAL = ("succeeded", "failed", "cancelled")
 # Share of the whole job by stage, for one monotonic progress number (percent).
-STAGE_SPAN = {"upload": (0, 4), "probe": (4, 7), "tracking": (7, 60), "expressions": (60, 72), "solving": (72, 78),
-              "writing": (78, 80), "preview": (80, 96), "download": (96, 99)}
+STAGE_SPAN = {"upload": (0, 4), "probe": (4, 7), "tracking": (7, 60), "expressions": (60, 72), "audio": (60, 72),
+              "solving": (72, 78), "writing": (78, 80), "preview": (80, 96), "download": (96, 99)}
 
 
 class ToolInputError(ValueError):
@@ -88,9 +88,12 @@ def model_digest(model_dir: pathlib.Path) -> str:
 
 
 def request_key(video: pathlib.Path, model_dir: pathlib.Path, cfg: C.Config, name: str, target: pathlib.Path,
-                install: bool, mapping: dict | None = None) -> str:
+                install: bool, mapping: dict | None = None, audio: pathlib.Path | None = None) -> str:
     h = hashlib.sha256()
     _digest_file(video, h)
+    if audio is not None:
+        h.update(b"audio")
+        _digest_file(audio, h)
     h.update(model_digest(model_dir).encode())
     h.update(json.dumps([C.to_dict(cfg), name, str(target), install], sort_keys=True).encode())
     if mapping:
@@ -237,7 +240,7 @@ class Job:
     id: str
     key: str
     name: str
-    video: str
+    video: str                        # the input: a video, or an audio file for an audio-only run
     model_dir: str
     out_dir: str                      # the job's own folder: <output folder>/<name>
     install: bool
@@ -258,6 +261,7 @@ class Job:
     task: Any = None
     changed: Any = None
     saved_at: float = 0.0
+    audio: str | None = None          # separate audio track of a video
 
     RECORD = ("id", "key", "name", "video", "model_dir", "out_dir", "install", "mode", "created", "started",
               "finished", "status", "stage", "progress", "result", "error")
@@ -298,7 +302,7 @@ class Job:
                 "result": self.result, "error": self.error}
 
     def record(self) -> dict:
-        return {**{k: getattr(self, k) for k in self.RECORD}, "log": list(self.log)}
+        return {**{k: getattr(self, k) for k in self.RECORD}, "audio": self.audio, "log": list(self.log)}
 
 
 class Jobs:
@@ -323,7 +327,7 @@ class Jobs:
         for f in files:
             try:
                 rec = json.loads(f.read_text())
-                job = Job(**{k: rec[k] for k in Job.RECORD})
+                job = Job(**{k: rec[k] for k in Job.RECORD}, audio=rec.get("audio"))
             except (OSError, ValueError, KeyError, TypeError):
                 continue
             job.log.extend(rec.get("log", []))
@@ -372,7 +376,7 @@ class Jobs:
 
     # ---- lifecycle
     def submit(self, key: str, video: pathlib.Path, model: pathlib.Path, name: str, cfg: C.Config,
-               base: pathlib.Path, install: bool, mapping: dict | None = None) -> Job:
+               base: pathlib.Path, install: bool, mapping: dict | None = None, audio: pathlib.Path | None = None) -> Job:
         """Starts a job (the caller has validated the arguments and checked by_key)."""
         target = base / name
         if target.exists():
@@ -391,12 +395,14 @@ class Jobs:
                 "--config", str(cfg_file), "--json", "--progress", "json"]
         if not install:
             argv.append("--no-install")
+        if audio is not None:
+            argv += ["--audio", str(audio)]
         if mapping:
             map_file = pathlib.Path(workdir) / "mapping.json"
             map_file.write_text(json.dumps(mapping, indent=1))
             argv += ["--mapping", str(map_file)]
         job = Job(id=job_id, key=key, name=name, video=str(video), model_dir=str(model), out_dir=str(target),
-                  install=install, mode=self.mode, argv=argv, workdir=workdir)
+                  install=install, mode=self.mode, argv=argv, workdir=workdir, audio=str(audio) if audio else None)
         self.jobs[job_id] = job
         self._touch(job, force=True)
         job.task = asyncio.get_running_loop().create_task(self._run(job))
@@ -563,8 +569,10 @@ def motions_in(model_dir: pathlib.Path) -> dict:
 
 # ---------------------------------------------------------------------------------- MCP binding
 
-INSTRUCTIONS = """V2L turns a recorded video of one person into a Live2D Cubism motion (.motion3.json) for a
-Live2D model folder, plus a QA report and an optional side-by-side preview MP4.
+INSTRUCTIONS = """V2L turns a recorded video of one person, or speech audio, into a Live2D Cubism motion
+(.motion3.json) for a Live2D model folder, plus a QA report and an optional preview MP4. Audio drives the face
+with NVIDIA Audio2Face-3D and generates head, body and blink motion (settings sections "audio" and "idle"); a
+video can take its mouth or whole face from its own sound or a separate audio file (settings.audio.use).
 Flow: v2l_params (settings schema and presets) -> optionally v2l_validate_settings -> v2l_generate, which
 waits up to ~40 s; while the result says status "queued"/"running", call v2l_job_status(job) (never start a
 second run for the same request). Jobs take roughly 0.5-2x the clip length on a GPU server and much longer on
@@ -576,13 +584,15 @@ v2l_generate(mapping=...) (a new name; cached tracking is reused). v2l_motion_re
 curves of a finished motion (keys, interpolation, Bezier handles, refit, trim, ...)."""
 
 JOB_SHAPE = """Returns {"job", "name", "status": queued | running | succeeded | failed | cancelled, "stage": upload |
-probe | tracking | expressions | solving | writing | preview | download | null, "progress": {"done", "total"}
-(frames of the current stage) or null, "percent": 0-100 estimate, "elapsed_s", "out_dir", "message" (what to
-do next), "log_tail", "result", "error"}. On success result is {"ok": true, "name", "out_dir", "files":
+probe | tracking | expressions | audio | solving | writing | preview | download | null, "progress": {"done",
+"total"} (frames of the current stage) or null, "percent": 0-100 estimate, "elapsed_s", "out_dir", "message" (what
+to do next), "log_tail", "result", "error"}. On success result is {"ok": true, "name", "out_dir", "files":
 {"motion", "report", "preview" (null when not rendered)}, "installed": path or null, "summary": {"face_rate",
-"curves", "points", "blinks", "warnings", ...}}; files.report holds per-parameter detail and the effective
-settings. On failure error is {"type": usage | config | input | invalid (bad mapping) | unusable_input (no face
-tracked) | runtime | remote | remote_unreachable | interrupted | cancelled, "message"}."""
+"curves", "points", "blinks", "warnings", "source": {"kind": video | audio | video+audio, ...}, ...}};
+files.report holds per-parameter detail, the audio diagnostics and the effective settings. On failure error is
+{"type": usage | config | input | invalid (bad mapping) | unusable_input (no face tracked; audio missing or
+silent) | audio_unavailable (Audio2Face-3D not installed or its models missing) | runtime | remote |
+remote_unreachable | interrupted | cancelled, "message"}."""
 
 MOTION_EDIT_SHAPE = """The editable motion is {"format": "v2l.motion-edit", "version": 1, "meta": {"duration",
 "fps", "loop", "fade_in", "fade_out", "restricted"}, "curves": [{"target", "id", "keys": [[t, v], ...], "segments":
@@ -829,12 +839,18 @@ def build_server(jobs: Jobs | None = None, policy: Policy | None = None):
 
     @tool("generate", ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True,
                                       openWorldHint=False),
-          """Converts a video of one person into a Live2D motion for a model. Starts a job (or resumes the
-        identical earlier request: same video and model content, settings, name and output folder), waits up to
-        wait_seconds (0-45, default 40) while sending progress notifications, then returns the job state. If
-        status is still "queued"/"running", call v2l_job_status(job) to keep waiting; never start a new run for
-        the same request. Arguments: video: absolute path of the clip (mp4/mov/...; one face, roughly
-        frontal). model: absolute path of the Live2D model folder (exactly one *.model3.json). name: 1-80 of
+          """Converts a video of one person, or speech audio, into a Live2D motion for a model. Starts a job (or
+        resumes the identical earlier request: same video/audio and model content, settings, name and output
+        folder), waits up to wait_seconds (0-45, default 40) while sending progress notifications, then returns
+        the job state. If status is still "queued"/"running", call v2l_job_status(job) to keep waiting; never start
+        a new run for the same request. Arguments: video: absolute path of the clip (mp4/mov/...; one face,
+        roughly frontal); an audio file here works like audio alone. audio: absolute path of an audio file
+        (wav/mp3/m4a/aac/flac/ogg/opus). audio alone (no video): the face is driven by the speech with NVIDIA
+        Audio2Face-3D, and head, body and blinks are generated (settings "audio", "idle"); the preview is the
+        avatar with the sound. video + audio: the audio replaces the video's own sound for the channels
+        settings.audio.use takes from it ("mouth" when settings leave audio.use "off"; "face" for the whole
+        face). A video alone with settings.audio.use "mouth"/"face" uses its own sound. model: absolute path of
+        the Live2D model folder (exactly one *.model3.json). name: 1-80 of
         A-Z a-z 0-9 _ -; files are <name>.motion3.json, <name>.report.json, <name>.preview.mp4. preset: a
         preset name from v2l_params, applied before settings. settings: partial settings {section: {name:
         value}} (invalid ones are rejected with every error listed). preview: render the preview MP4
@@ -848,20 +864,23 @@ def build_server(jobs: Jobs | None = None, policy: Policy | None = None):
                            preset: str | None = None, settings: dict[str, Any] | None = None,
                            preview: bool | None = None, out_dir: str | None = None, install: bool = False,
                            job: str | None = None, wait_seconds: float = DEFAULT_WAIT_S,
-                           mapping: dict[str, Any] | str | None = None,
+                           mapping: dict[str, Any] | str | None = None, audio: str | None = None,
                            ctx: Context | None = None) -> dict[str, Any]:
         try:
             if job is not None:
                 j = jobs.get(job)
             else:
-                if video is None or model is None or name is None:
-                    raise ToolInputError("video, model and name are required (or pass job to resume a job)")
+                if (video is None and audio is None) or model is None or name is None:
+                    raise ToolInputError("video (or audio), model and name are required (or pass job to resume a job)")
                 if install and not policy.enabled("install"):
                     raise ToolInputError("installing into the model folder is disabled on this server; leave "
                                          "install false (only the user can enable the install toolset)")
-                v = policy.path(video, "video")
+                v = policy.path(video if video is not None else audio, "video" if video is not None else "audio")
                 if not v.is_file():
-                    raise ToolInputError(f"video not found: {v}")
+                    raise ToolInputError(f"{'video' if video is not None else 'audio'} not found: {v}")
+                a = policy.path(audio, "audio") if video is not None and audio is not None else None
+                if a is not None and not a.is_file():
+                    raise ToolInputError(f"audio not found: {a}")
                 m = policy.model_dir(model)
                 if not isinstance(name, str) or not NAME_RE.match(name):
                     raise ToolInputError("name must be 1-80 characters of A-Z, a-z, 0-9, '_' or '-'")
@@ -871,9 +890,16 @@ def build_server(jobs: Jobs | None = None, policy: Policy | None = None):
                     raise ToolInputError("invalid settings: " + "; ".join(errors))
                 if preview is not None:
                     cfg = dataclasses.replace(cfg, preview=dataclasses.replace(cfg.preview, enabled=bool(preview)))
+                if a is not None and cfg.audio.use == "off":
+                    cfg = dataclasses.replace(cfg, audio=dataclasses.replace(cfg.audio, use="mouth"))
+                if a is not None:
+                    from .media import kind
+
+                    if kind(v) == "audio":
+                        raise ToolInputError("video is an audio file; pass a video with audio, or audio alone")
                 overrides = mapping_arg(policy, mapping, cfg.bridge.preset)
-                key = await asyncio.to_thread(request_key, v, m, cfg, name, base / name, bool(install), overrides)
-                j = jobs.by_key(key) or jobs.submit(key, v, m, name, cfg, base, bool(install), overrides)
+                key = await asyncio.to_thread(request_key, v, m, cfg, name, base / name, bool(install), overrides, a)
+                j = jobs.by_key(key) or jobs.submit(key, v, m, name, cfg, base, bool(install), overrides, a)
         except ToolInputError as e:
             fail(e)
         return (await jobs.wait(j, wait_seconds, await reporter(ctx) if ctx else None)).view()

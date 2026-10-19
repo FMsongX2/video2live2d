@@ -2,7 +2,7 @@
 
 <img src="docs/assets/banner.svg" alt="video2live2d: 영상 프레임, 얼굴 랜드마크, Live2D 파라미터 곡선" width="100%">
 
-<p><strong>사람이 찍힌 녹화 영상을 오프라인에서 Live2D Cubism 모션으로 변환합니다.</strong></p>
+<p><strong>사람이 찍힌 녹화 영상이나 음성 녹음을 오프라인에서 Live2D Cubism 모션으로 변환합니다.</strong></p>
 
 <p>
 <a href="https://github.com/FMsongX2/video2live2d/actions/workflows/ci.yml"><img src="https://github.com/FMsongX2/video2live2d/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -15,23 +15,24 @@
 
 </div>
 
-video2live2d(V2L)는 얼굴과 어깨가 화면에 들어온 실제 사람의 영상을 읽어, VBridger 호환 Live2D 모델용 Cubism `.motion3.json`을 만듭니다. iPhone도, 실시간 트래킹도 필요 없습니다. 클립을 녹화하고 명령 하나를 실행하면 VTube Studio나 다른 Cubism 런타임에서 재생할 수 있는 모션이 나옵니다. 제품 이름은 V2L이고, Python 패키지와 명령 이름은 `v2l`입니다.
+video2live2d(V2L)는 얼굴과 어깨가 화면에 들어온 실제 사람의 영상을 읽어, VBridger 호환 Live2D 모델용 Cubism `.motion3.json`을 만듭니다. iPhone도, 실시간 트래킹도 필요 없습니다. 클립을 녹화하고 명령 하나를 실행하면 VTube Studio나 다른 Cubism 런타임에서 재생할 수 있는 모션이 나옵니다. 선택 기능인 Audio2Live2D 모드를 쓰면 영상 대신(또는 영상과 함께) 음성이 얼굴을 움직입니다. 제품 이름은 V2L이고, Python 패키지와 명령 이름은 `v2l`입니다.
 
 ## 주요 기능
 
 - **영상을 넣으면 모션이 나옵니다.** 평범한 녹화 클립에서 머리·몸 각도, 눈과 시선, 눈썹, VBridger 입 파라미터 세트, 어깨, 호흡을 만듭니다.
+- **Audio2Live2D.** NVIDIA Audio2Face-3D v3.0(선택 `audio` extra)으로 음성이 얼굴을 움직입니다. 오디오만 넣으면 립싱크된 얼굴과 함께 머리, 몸, 눈 깜빡임을 생성하고, 영상은 입이나 얼굴 전체를 영상 자체의 소리나 별도 오디오 파일에서 가져올 수 있습니다.
 - **자동 캘리브레이션.** 클립에서 가장 움직임이 적은 구간을 기본 표정으로 삼아, VBridger의 수동 Calibrate 버튼을 대신합니다. 구간을 직접 지정할 수도 있습니다.
 - **모델 자체 설정을 그대로 사용.** 모델에 `*.vtube.json`(VTube Studio 설정)이 있으면 파라미터 범위, 클램프, 호흡 설정을 거기서 가져오고, 없으면 표준 Cubism 파라미터 id를 사용합니다.
 - **리그에 의존하지 않는 방향 점검.** 헤드리스 렌더 프로브가 각 파라미터가 화면에서 실제로 어떻게 움직이는지 측정해, 반대로 된 방향과 좌우가 바뀐 눈을 바로잡습니다. 결과는 모델별로 캐시됩니다.
 - **SnenkBridge 형식 브리지.** 내장 VBridger 스타일 브리지는 SnenkBridge 수식 언어의 안전한 인터프리터로 평가되며, `--bridge FILE`로 같은 형식의 다른 프리셋을 불러올 수 있습니다.
 - **두 가지 스타일.** `cute`(기본값)는 조금 더 밝고 생기 있는 연기를 더하고, `faithful`은 아무것도 더하지 않습니다.
-- **모든 값을 조정할 수 있습니다.** 입력, 캘리브레이션, 강도, 스무딩, 스타일 등 10개 섹션의 설정 67개가 CLI, V2L Studio, MCP 서버가 함께 쓰는 하나의 스키마에서 나옵니다. 내장 프리셋과 사용자 프리셋으로 묶어 쓸 수 있습니다.
+- **모든 값을 조정할 수 있습니다.** 입력, 캘리브레이션, 강도, 스무딩, 스타일, 오디오 등 12개 섹션의 설정 90개가 CLI, V2L Studio, MCP 서버가 함께 쓰는 하나의 스키마에서 나옵니다. 내장 프리셋과 사용자 프리셋으로 묶어 쓸 수 있습니다.
 - **에이전트 친화적.** `--json`으로 JSON 결과 객체 하나, `--progress json`으로 JSON-lines 진행 이벤트, 문서화된 종료 코드, AI 에이전트용 MCP 서버를 제공합니다.
 - **모션 편집.** 구간마다 선형, 베지어, 계단, 역계단을 고를 수 있는 키프레임, 베지어 핸들, 다시 맞추기, 실행 취소를 V2L Studio의 커브 편집기나 `v2l motion` 작업으로 다룹니다.
 - **3단계 매핑 편집.** VBridger, SnenkBridge, VTube Studio의 파라미터 설정을 본떴습니다. 입력 커브, 수식과 SnenkBridge식 지연 버퍼·VBridger식 수정자(지연, 스무딩, 단계)가 있는 브리지 출력, 그리고 범위, 반전, 클램프, 반응 커브, 스무딩 차단 주파수를 정하는 파라미터별 매핑입니다.
 - **선택 기능: 볼 부풀리기와 혀 내밀기.** 제로샷 SigLIP 2 단계가 MediaPipe가 잘 잡지 못하는 표정을 점수화합니다.
 - **미리보기와 리포트.** 원본과 모델을 나란히 보여 주는 미리보기 영상과, 검출률·눈 깜빡임·범위 사용률·경고를 담은 `report.json`을 만듭니다.
-- **노트북 + 연산 호스트 워크플로.** 표준 라이브러리만 쓰는 `bin/v2l-remote`가 SSH로 다른 머신에서 파이프라인을 실행하고, V2L Studio는 이를 Live2D 뷰어와 웹캠 녹화가 있는 데스크톱 앱으로 감쌉니다.
+- **노트북 + 연산 호스트 워크플로.** 표준 라이브러리만 쓰는 `bin/v2l-remote`가 SSH로 다른 머신에서 파이프라인을 실행하고, V2L Studio는 이를 Live2D 뷰어, 웹캠 녹화, 음성 녹음이 있는 데스크톱 앱으로 감쌉니다.
 
 ## 동작 방식
 
@@ -41,6 +42,7 @@ flowchart LR
         direction TB
         A["영상"] --> B["MediaPipe Face + Pose"]
         B --> C["이미지 공간 특징"]
+        A2["오디오"] --> A3["Audio2Face-3D<br/>(선택)"]
     end
     subgraph S2["2 · 해석"]
         direction TB
@@ -67,6 +69,7 @@ flowchart LR
 | 단계 | 소스 | 하는 일 |
 |---|---|---|
 | 트래킹 | `src/v2l/signals.py` | MediaPipe Face Landmarker(ARKit 이름의 블렌드셰이프 52개, 머리 변환, 랜드마크 478개)와 Pose Landmarker(어깨). |
+| 오디오 | `src/v2l/media.py`, `src/v2l/a2f.py`, `src/v2l/audio.py` | 선택 단계. 오디오를 모노 16 kHz로 디코딩하고, ONNX Runtime에서 NVIDIA Audio2Face-3D v3.0을 실행하며(ARKit 이름의 블렌드셰이프와 눈 회전, 60 fps), 오디오만 입력하면 머리, 몸, 눈 깜빡임을 생성합니다(`idle.*`). [docs/audio.md](docs/audio.md) 참고. |
 | 특징 | `src/v2l/features.py` | 머리 yaw/pitch/roll, 눈별 개방도, 홍채 시선, 턱 벌림, 입술 안쪽 간격, 입 너비, 얼굴 기준 입의 좌우 이동, 어깨 roll/yaw/높이. |
 | 볼 / 혀 | `src/v2l/rare.py` | 선택 단계. N 프레임마다 SigLIP 2로 제로샷 점수를 매깁니다. |
 | 캘리브레이션 | `src/v2l/calibrate.py` | 클립 전체에서 기본 표정(가장 움직임이 적은 구간)과 채널별 반응 폭을 찾습니다. |
@@ -90,6 +93,7 @@ flowchart LR
 - Google Chrome 설치(Playwright가 `channel="chrome"`으로 실행합니다).
 - ffmpeg를 따로 설치할 필요가 없습니다. `imageio-ffmpeg`에 바이너리가 포함되어 있습니다.
 - 선택: 볼/혀 단계용 NVIDIA GPU. 여유 메모리가 3 GB 이상이면 GPU를, 아니면 CPU를 사용하며 CPU에서는 점수를 매기는 프레임당 약 0.8초가 걸립니다.
+- 선택: 오디오 입력용(`audio` extra) ONNX Runtime 1.31. Linux와 Windows x86_64에서는 이 extra가 CUDA 13 빌드를 설치하며, NVIDIA 드라이버 580 이상이 필요하고 안 되면 CPU로 대체합니다. macOS와 ARM에는 CPU 빌드가 설치됩니다. 약 10~14초 분량의 음성은 CUDA GPU에서 약 2.5~3초, Apple silicon CPU에서 약 3~5초 걸립니다.
 
 **노트북** (원격 워크플로와 V2L Studio용)
 
@@ -110,11 +114,14 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 # optional: cheek puff / tongue out (installs torch + transformers)
 pip install -e '.[rare]'
+# optional: audio input (Audio2Live2D; installs onnxruntime)
+pip install -e '.[audio]'
 
 v2l run clip.mp4 --model ~/Models/MyModel --name hello
+v2l run speech.wav --model ~/Models/MyModel --name talk     # needs the audio extra
 ```
 
-결과는 `v2l_out/`(`hello.motion3.json`, `hello.preview.mp4`, `hello.report.json`)에 저장됩니다. `--no-install`을 주지 않으면 모션이 모델 폴더에도 복사됩니다. 트래커 모델과 Live2D Cubism Core는 처음 사용할 때 내려받습니다.
+결과는 `v2l_out/`(`hello.motion3.json`, `hello.preview.mp4`, `hello.report.json`)에 저장됩니다. `--no-install`을 주지 않으면 모션이 모델 폴더에도 복사됩니다. 트래커 모델과 Live2D Cubism Core는 처음 사용할 때 내려받습니다. 오디오를 처음 실행할 때는 Audio2Face-3D 모델(약 725 MB, 아이덴티티마다 약 17 MB 추가)을 `~/.cache/v2l/a2f/`에 내려받습니다.
 
 ### B. 노트북 + 연산 호스트
 
@@ -122,11 +129,12 @@ v2l run clip.mp4 --model ~/Models/MyModel --name hello
 export V2L_HOST=user@gpu-box          # required, no default
 export V2L_DIR=v2l                    # optional, relative to the remote home
 
-bin/v2l-remote setup                  # push code, create .venv, install, pre-download tracker models, Cubism Core and renderer libraries
+bin/v2l-remote setup                  # push code, create .venv, install (with the audio extra), pre-download tracker models, Audio2Face-3D models, Cubism Core and renderer libraries
 bin/v2l-remote run clip.mp4 --model ~/Models/MyModel --name hello --out ~/Downloads/v2l_out
+bin/v2l-remote run speech.wav --model ~/Models/MyModel --name talk
 ```
 
-`run`은 영상과 모델 폴더를 업로드하고, 호스트에서 `v2l run`을 실행한 뒤 결과를 `~/Downloads/v2l_out/hello/`로 가져옵니다. `--no-install`을 주지 않으면 모션이 로컬 모델 폴더에도 복사됩니다. 그 밖의 `v2l run` 옵션(`--preset`, `--config`, `--set`, 단축 플래그)도 쓸 수 있습니다. 연결은 `bin/v2l-remote check`로 확인합니다. 코드를 업데이트한 뒤에는 `setup`을 다시 실행하세요. 호스트에서 볼/혀 단계를 쓰려면 호스트의 `V2L_DIR` 안에서 `.venv/bin/pip install -e '.[rare]'`를 실행합니다.
+`run`은 입력(영상 또는 오디오)과 모델 폴더를 업로드하고, 호스트에서 `v2l run`을 실행한 뒤 결과를 `~/Downloads/v2l_out/hello/`로 가져옵니다. `--no-install`을 주지 않으면 모션이 로컬 모델 폴더에도 복사됩니다. 그 밖의 `v2l run` 옵션(`--preset`, `--config`, `--set`, `--audio`, 단축 플래그)도 쓸 수 있습니다. 연결은 `bin/v2l-remote check`로 확인합니다. 코드를 업데이트한 뒤에는 `setup`을 다시 실행하세요. 호스트에서 볼/혀 단계를 쓰려면 호스트의 `V2L_DIR` 안에서 `.venv/bin/pip install -e '.[rare]'`를 실행합니다.
 
 ### C. V2L Studio
 
@@ -148,10 +156,12 @@ V2L_MODEL=~/Models/MyModel V2L_HOST=user@gpu-box bin/v2l-studio
 ### `v2l run`
 
 ```text
-v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config FILE]...
+v2l run INPUT --model DIR --name NAME [--audio FILE] [--out DIR] [--preset NAME|FILE] [--config FILE]...
         [--set SECTION.NAME=VALUE]... [shortcut flags] [--mapping FILE] [--dump-signals]
         [--no-install] [--dry-run] [--json] [--progress text|json]
 ```
+
+`INPUT`은 영상 또는 오디오 파일입니다(`.wav .mp3 .m4a .aac .flac .ogg .oga .opus`, 또는 영상 스트림이 없는 컨테이너). 오디오에는 `audio` extra가 필요합니다. [오디오 입력](#오디오-입력)을 참고하세요.
 
 설정은 다음 순서로 적용되며, 뒤에 오는 것이 우선합니다.
 
@@ -162,6 +172,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 | 옵션 | 기본값 | 의미 |
 |---|---|---|
+| `--audio FILE` | 없음 | 영상 입력에 쓸 별도 오디오 트랙. 영상과 같은 시점에 시작합니다. `audio.use=mouth` 또는 `face`(`--audio-use`)가 필요합니다. 지정하지 않으면 영상 자체의 소리를 씁니다. |
 | `--model DIR` | 필수 | Live2D 모델 폴더(`*.model3.json`, 선택적으로 `*.vtube.json`). |
 | `--name NAME` | 필수 | 출력 이름. 모션 파일은 `NAME.motion3.json`입니다. |
 | `--out DIR` | `v2l_out` | 출력 폴더. 파일은 이 폴더에 바로 저장됩니다. |
@@ -193,6 +204,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `--no-preview` | `preview.enabled=false` | 미리보기 영상을 만들지 않습니다. |
 | `--no-rare` | `expressions.enabled=false` | 볼 부풀리기 / 혀 내밀기 단계를 건너뜁니다. |
 | `--rare-stride N` | `expressions.stride` | N 프레임마다 볼 부풀리기 / 혀 내밀기 점수를 매깁니다(기본값 3). |
+| `--audio-use off\|mouth\|face` | `audio.use` | 영상 입력일 때: `mouth`는 턱, 입술, 혀를 오디오에서, `face`는 얼굴 전체를 오디오에서 가져옵니다(머리, 몸, 시선은 영상 그대로). 기본값 `off`. |
 
 </details>
 
@@ -212,7 +224,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 | 이벤트 | 필드 |
 |---|---|
-| `stage` | `stage`: `probe`, `tracking`, `expressions`, `solving`, `writing`, `preview` 중 하나(`v2l-remote`는 맨 앞에 `upload`, 맨 뒤에 `download`를 추가합니다). |
+| `stage` | `stage`: `probe`, `tracking`, `expressions`, `audio`, `solving`, `writing`, `preview` 중 하나(`v2l-remote`는 맨 앞에 `upload`, 맨 뒤에 `download`를 추가합니다). 오디오만 입력하면 `tracking`과 `expressions`를 건너뛰고, `audio`는 오디오를 쓸 때만 실행됩니다. |
 | `progress` | `stage`, `done`, `total`. 약 0.5초마다, 그리고 마지막 값은 항상 보냅니다. |
 | `log` | `message`. 트래커와 라이브러리의 출력도 이 이벤트로 감쌉니다. |
 
@@ -221,11 +233,26 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | 코드 | 오류 유형 |
 |---|---|
 | `0` | 성공 |
-| `1` | `runtime`, `remote` |
+| `1` | `runtime`, `remote`, `audio_unavailable`(`audio` extra나 Audio2Face-3D 모델이 없음) |
 | `2` | `usage`, `config`, `input`, `invalid`(검증을 통과하지 못한 모션, 편집 작업, 매핑, 수식) |
-| `3` | `unusable_input`: 영상이 열리지 않거나 얼굴이 트래킹되지 않음 |
+| `3` | `unusable_input`: 영상이 열리지 않거나, 얼굴이 트래킹되지 않거나, 오디오가 없거나 무음임 |
 | `4` | `remote_unreachable`: 연산 호스트에 연결할 수 없음 |
 | `130` | `interrupted`, `cancelled` |
+
+#### 오디오 입력
+
+```bash
+v2l run speech.wav --model ~/Models/MyModel --name talk                                # audio only
+v2l run clip.mp4 --model ~/Models/MyModel --name talk --audio-use mouth                # mouth from the video's own sound
+v2l run clip.mp4 --audio voice.wav --audio-use face --model ~/Models/MyModel --name talk  # separate audio track
+```
+
+- **오디오만.** NVIDIA Audio2Face-3D v3.0이 음성을 60 fps의 ARKit 이름 블렌드셰이프로 바꾸고, V2L은 영상과 같은 처리 과정(강도, 입력 커브, 브리지, 매핑, 스타일, 필터링)을 실행합니다. 머리와 몸의 움직임은 생성하며(`idle.*`), 모델이 눈을 깜빡이지 않으므로 눈 깜빡임도 생성합니다. `input.start`와 `input.end`로 오디오를 자릅니다.
+- **영상 + 오디오.** `audio.use=mouth`는 턱, 입술, 입 모양, 혀, 볼 부풀리기를 오디오에서, 나머지는 모두 영상에서 가져옵니다. `audio.use=face`는 얼굴 전체를 오디오에서 가져오고 머리, 몸, 시선은 영상에서 유지합니다. 오디오를 쓰면 볼/혀 단계는 건너뜁니다.
+- **기본값.** `audio.use`는 `off`이므로 켜지 않는 한 영상 실행은 달라지지 않습니다. `audio.use`를 지정하지 않고 `--audio`를 쓰면 사용법 오류입니다.
+- **직접 고르는 값.** 감정은 검출하지 않고 직접 고릅니다: `audio.emotion`(기본값 `neutral`)과 `audio.emotion_strength`. `audio.identity`는 모델이 학습한 배우(`Claire`, `James`, `Mark`) 중 하나를 고릅니다. `audio.offset`은 얼굴을 시간축으로 옮깁니다.
+
+무음 구간을 선택했거나, 오디오가 필요한데 영상에 소리가 없으면 `unusable_input`(종료 코드 3)으로 실패합니다. `audio` extra가 없거나 모델 다운로드에 실패하면 `audio_unavailable`(종료 코드 1)로 실패합니다. 자세한 내용, 채널 표, 파생 입력: [docs/audio.md](docs/audio.md).
 
 ### 그 밖의 `v2l` 명령
 
@@ -251,8 +278,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 | 명령 | 하는 일 |
 |---|---|
-| `setup` | `V2L_HOST`에 코드를 올리고 `.venv`를 만든 뒤 `pip install -e '.[test]'`를 실행하고, 트래커 모델, Cubism Core, 렌더러 라이브러리를 미리 내려받습니다. |
-| `run VIDEO --model DIR --name NAME [--out DIR] [--no-install] [--json] [--progress text\|json] [v2l run options...]` | 호스트에서 `v2l run`을 실행하고 결과를 `OUT/NAME/`으로 가져옵니다(`--out` 기본값은 `V2L_OUT`, 없으면 `~/Downloads/v2l_out`). |
+| `setup` | `V2L_HOST`에 코드를 올리고 `.venv`를 만든 뒤 `pip install -e '.[test,audio]'`를 실행하고, 트래커 모델, Audio2Face-3D 모델(아이덴티티 세 개 모두), Cubism Core, 렌더러 라이브러리를 미리 내려받습니다. |
+| `run INPUT --model DIR --name NAME [--audio FILE] [--out DIR] [--no-install] [--json] [--progress text\|json] [v2l run options...]` | 호스트에서 `v2l run`을 실행하고 결과를 `OUT/NAME/`으로 가져옵니다(`--out` 기본값은 `V2L_OUT`, 없으면 `~/Downloads/v2l_out`). `INPUT`은 영상 또는 오디오 파일입니다. |
 | `probe --model DIR [--details] [--json]` | 로컬 모델을 호스트에서 프로브합니다. |
 | `mapping show --model DIR [--mapping FILE] [--json]` | 로컬 모델의 최종 매핑을 호스트에서 계산합니다. |
 | `mapping inputs\|validate ...`, `bridge ...` | 노트북에서 실행하며 `V2L_HOST`가 필요 없습니다. |
@@ -266,6 +293,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 - `--preset`, `--config` 파일, 단축 플래그, `--set`은 **노트북에서** 해석되므로 사용자 프리셋과 로컬 파일이 그대로 쓰입니다. 실행마다 최종 설정을 담은 파일 하나(로컬 브리지 파일이 있으면 그것도)를 업로드하고 끝나면 지웁니다. 잘못된 설정은 업로드 전에 실패합니다.
 - `--dry-run`은 연결 없이 노트북에서 실행됩니다.
 - `--mapping FILE`은 설정 파일처럼 업로드되고 실행 후 지워집니다. `--dump-signals`를 주면 신호 파일도 결과와 함께 돌아옵니다.
+- `--audio FILE`은 입력과 마찬가지로 `V2L_DIR` 안의 `inputs/audio/`에 업로드되어 호스트의 `v2l run`에 전달됩니다.
 - `v2l-remote`를 멈추면(Ctrl-C, SIGTERM, SIGHUP) 호스트의 작업도 멈추고 그 실행의 파일을 지운 뒤 130으로 종료합니다.
 
 ### 환경 변수
@@ -282,7 +310,7 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 
 ## 설정과 프리셋
 
-조정 가능한 값은 모두 하나의 스키마 `src/v2l/config.py`에 있습니다. 10개 섹션에 설정 67개입니다. CLI, V2L Studio, MCP 서버가 같은 스키마를 읽으므로 설정 이름, 범위, 의미가 어디서나 같습니다. 알 수 없는 키, 잘못된 타입, 범위를 벗어난 값은 오류입니다.
+조정 가능한 값은 모두 하나의 스키마 `src/v2l/config.py`에 있습니다. 12개 섹션에 설정 90개입니다. CLI, V2L Studio, MCP 서버가 같은 스키마를 읽으므로 설정 이름, 범위, 의미가 어디서나 같습니다. 알 수 없는 키, 잘못된 타입, 범위를 벗어난 값은 오류입니다.
 
 | 섹션 | 조정 대상 | 예시 키 |
 |---|---|---|
@@ -296,6 +324,8 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `style` | 트래킹한 움직임 위에 더하는 연기 스타일. | `name`, `blush_smile`, `head_gain` |
 | `filtering` | 파라미터 그룹별 영위상 저역 통과 필터. | `cutoff_scale`, `head`, `mouth` |
 | `preview` | 나란히 보여 주는 미리보기 영상. | `enabled`, `width`, `height` |
+| `audio` | 오디오로 움직이는 얼굴(NVIDIA Audio2Face-3D). | `use`, `identity`, `emotion`, `emotion_strength` |
+| `idle` | 영상이 없을 때 생성하는 머리, 몸, 눈 깜빡임. | `head_amplitude`, `speech_nods`, `blinks` |
 
 <details>
 <summary>섹션별 전체 설정 이름</summary>
@@ -312,14 +342,37 @@ v2l run VIDEO --model DIR --name NAME [--out DIR] [--preset NAME|FILE] [--config
 | `style` | `name`, `mouth_form_bias`, `eye_smile_max`, `blush_rest`, `blush_smile`, `eye_open_scale`, `head_gain`, `sparkle_param`, `sparkle_smile`, `sparkle_hold` |
 | `filtering` | `despike`, `cutoff_scale`, `head`, `body`, `eyeball`, `eye_open`, `brows`, `smile`, `mouth`, `blush`, `sparkle`, `other` |
 | `preview` | `enabled`, `width`, `height` |
+| `audio` | `use`, `identity`, `emotion`, `emotion_strength`, `strength`, `upper_face_strength`, `lower_face_strength`, `blink_strength`, `eyeballs_strength`, `saccade_strength`, `tongue_strength`, `lip_open_offset`, `offset`, `seed`, `device` |
+| `idle` | `head_amplitude`, `head_speed`, `speech_nods`, `body_amplitude`, `blinks`, `blink_rate`, `gaze`, `seed` |
 
 </details>
 
 타입, 기본값, 범위, 단위, 도움말은 `v2l config schema`(또는 표준 라이브러리만 필요한 `python -m v2l.config schema`)로 확인하세요.
 
+<details>
+<summary>주요 <code>audio</code>, <code>idle</code> 설정</summary>
+
+| 설정 | 기본값 | 의미 |
+|---|---|---|
+| `audio.use` | `off` | 영상 입력일 때: `off`, `mouth`(턱, 입술, 혀를 오디오에서) 또는 `face`(얼굴 전체). 오디오만 입력하면 항상 오디오를 씁니다. |
+| `audio.identity` | `Claire` | 얼굴이 따라 할 Audio2Face-3D의 학습된 배우: `Claire`, `James`, `Mark`. |
+| `audio.emotion` | `neutral` | `neutral`, `amazement`, `anger`, `cheekiness`, `disgust`, `fear`, `grief`, `joy`, `outofbreath`, `pain`, `sadness`. |
+| `audio.emotion_strength` | `0.6` | 감정이 드러나는 세기(0~1). |
+| `audio.strength` | `1.0` | 오디오로 만든 얼굴 움직임 전체의 세기(0~2). |
+| `audio.offset` | `0`초 | 오디오로 만든 얼굴을 시간축으로 옮깁니다(-1~1초). 양수면 늦어집니다. |
+| `audio.device` | `auto` | `auto`(NVIDIA GPU가 있으면 사용), `cuda` 또는 `cpu`. |
+| `idle.head_amplitude` | `4`도 | 생성하는 머리 흔들림의 크기. |
+| `idle.speech_nods` | `1.0` | 음성의 크기를 따라가는 작은 끄덕임과 기울임(0~3). |
+| `idle.body_amplitude` | `1.0` | 생성한 머리를 따라가는 몸 흔들림(0~3). |
+| `idle.blinks` | `procedural` | `procedural`은 무작위 눈 깜빡임을 더하고(Audio2Face-3D v3.0은 눈을 깜빡이지 않음), `model`은 모델의 눈 감기만 남기고, `off`는 눈을 뜬 채로 둡니다. `audio.use=face`일 때도 쓰입니다. |
+| `idle.blink_rate` | 분당 `15`회 | 절차적 눈 깜빡임의 평균 빈도. |
+| `idle.gaze` | `model` | `model`은 오디오 모델의 눈 움직임을 쓰고, `center`는 눈을 정면에 둡니다. |
+
+</details>
+
 **변경이 미치는 범위.** 각 설정에는 `affects` 값이 있습니다.
 
-- `tracking`: 영상을 다시 트래킹합니다(`input.*`, `expressions.enabled`, `expressions.stride`).
+- `tracking`: 입력을 다시 분석합니다(`input.*`, `expressions.enabled`, `expressions.stride`, `audio.*`). Audio2Face-3D 출력은 `~/.cache/v2l/a2f/`에 따로 캐시되므로 `audio.use`, `audio.offset`, `audio.device`를 바꿀 때는 이를 재사용합니다.
 - `solve`: 캐시된 트래킹 결과를 재사용하고 모션만 다시 계산합니다(대부분의 설정). 트래킹 캐시는 `v2l`을 실행하는 머신의 `~/.cache/v2l`에 있으므로, 같은 클립을 solve 설정만 바꿔 다시 실행하면 트래킹을 건너뜁니다.
 - `output`: 미리보기 렌더링만 바뀝니다(`preview.*`).
 
@@ -430,7 +483,7 @@ AI 에이전트는 두 가지 방법으로 V2L을 다룰 수 있습니다. `--js
 
 **설치**
 
-- 로컬 모드(이 머신에서 트래킹): `pip install -e '.[mcp]'` 후 `v2l mcp`를 실행합니다.
+- 로컬 모드(이 머신에서 트래킹): `pip install -e '.[mcp]'`(오디오 입력에는 `'.[mcp,audio]'`) 후 `v2l mcp`를 실행합니다.
 - 원격 모드(노트북에서 실행, 작업은 `v2l-remote`를 통해 `V2L_HOST`에서 실행): `bin/v2l-mcp`를 사용합니다. `python3`, `rsync`, `ssh`, 그리고 `mcp` 패키지만 있으면 되며, `mcp`가 없으면 [uv](https://docs.astral.sh/uv/)가 제공합니다.
 
 `V2L_HOST`가 설정되어 있으면 서버는 항상 원격 모드로 동작합니다.
@@ -471,13 +524,15 @@ JSON으로 설정하는 클라이언트:
 | `v2l_motion_info(motion)` | 모션의 커브, 세그먼트 유형, 개수, 문제점. |
 | `v2l_motion_read(motion, curves?)` | 모션을 편집 가능한 JSON으로. |
 | `v2l_motion_edit(motion, operations, out, overwrite?, ranges?)` | 편집 작업을 적용하고 결과를 새 모션으로 씁니다. |
-| `v2l_generate(video, model, name, preset?, settings?, mapping?, preview?, out_dir?, install?, job?, wait_seconds?)` | 생성 작업을 시작하거나 이어 갑니다. |
+| `v2l_generate(video?, model, name, preset?, settings?, mapping?, preview?, out_dir?, install?, job?, wait_seconds?, audio?)` | 영상, 오디오 파일 또는 둘 다로 생성 작업을 시작하거나 이어 갑니다. |
 | `v2l_job_status(job, wait_seconds?)` | 작업을 기다렸다가 진행 상황이나 결과를 돌려줍니다. |
 | `v2l_jobs()` | 알려진 모든 작업. |
 | `v2l_job_cancel(job)` | 대기 중이거나 실행 중인 작업을 멈춥니다(원격 모드에서는 호스트의 프로세스도). |
 | `v2l_install_motion(motion, model, overwrite?)` | 모션을 모델 폴더에 복사합니다(`install` 툴셋에서만). |
 
-**긴 작업.** `v2l_generate`는 진행 알림을 보내며 최대 45초(기본값 40초, 일반적인 클라이언트의 60초 요청 제한보다 짧음) 기다린 뒤 결과나 작업 핸들을 돌려줍니다. 핸들로 `v2l_job_status`를 호출해 계속 기다리면 됩니다. 같은 요청(같은 영상·모델 내용, 설정, 이름, 출력 폴더)을 다시 보내면 두 번째 실행을 시작하지 않고 같은 작업을 이어 갑니다. 작업은 한 번에 하나씩 실행되며, 뒤의 작업은 `queued` 상태가 됩니다. 작업 기록은 `~/.cache/v2l/jobs/`에 저장됩니다.
+**긴 작업.** `v2l_generate`는 진행 알림을 보내며 최대 45초(기본값 40초, 일반적인 클라이언트의 60초 요청 제한보다 짧음) 기다린 뒤 결과나 작업 핸들을 돌려줍니다. 핸들로 `v2l_job_status`를 호출해 계속 기다리면 됩니다. 같은 요청(같은 영상/오디오·모델 내용, 설정, 이름, 출력 폴더)을 다시 보내면 두 번째 실행을 시작하지 않고 같은 작업을 이어 갑니다. 작업은 한 번에 하나씩 실행되며, 뒤의 작업은 `queued` 상태가 됩니다. 작업 기록은 `~/.cache/v2l/jobs/`에 저장됩니다.
+
+**오디오.** `audio`만 주면(또는 오디오 파일을 `video`로 넘기면) 음성으로 얼굴을 움직이고 머리, 몸, 눈 깜빡임을 생성합니다. `video`와 `audio`를 함께 주면 `settings.audio.use`가 가져오는 채널에 대해 영상 자체의 소리를 대신합니다. 설정에서 `audio.use`가 `off`로 남아 있으면 서버가 `mouth`로 정합니다. 영상만 주고 `settings.audio.use`를 `mouth`나 `face`로 정하면 영상 자체의 소리를 씁니다. 작업을 실행하는 호스트에는 `audio` extra가 필요합니다(`bin/v2l-remote setup`이 설치합니다).
 
 **서버 플래그**
 
@@ -507,11 +562,12 @@ JSON으로 설정하는 클라이언트:
 V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 패널이 있는 Electron 데스크톱 앱입니다.
 
 - **뷰어.** 프레이밍 프리셋, 드래그와 확대/축소, 물리 연산 토글, 스크럽 바. **Space**로 재생을 켜고 끕니다. 텍스처는 4K로 제한한 보기용 사본으로 표시하며, 모델 폴더는 수정하지 않습니다.
-- **생성 패널.** 영상을 고르거나 끌어다 놓거나, 웹캠 테이크를 녹화합니다. 모션 이름, 튜닝 프리셋, 스타일을 정하고, 필요하면 구간 자르기, 기본 표정 구간, 볼/혀 인식, 좌우 반전을 설정합니다. ⋯ 메뉴에서 이 값을 기본값으로 저장하거나 초기화하거나, 실행 내용을 `v2l run` 명령으로 복사할 수 있습니다.
-- **생성.** 번호가 붙은 단계 목록(upload, probe, tracking, expressions, solving, writing, preview, download)과 트래킹·표정 점수화의 프레임 진행률을 보여 주며, 원본 로그도 볼 수 있습니다. 실패는 원인별로 표시되고(사용할 수 있는 얼굴 없음, 호스트 연결 불가, 잘못된 설정, 취소), 취소할 때는 확인을 받습니다. 완료된 결과는 원본 영상과 동기화해 비교하거나, 모델 폴더에 저장하거나(덮어쓰기 전 확인), **이 설정 사용**으로 그 설정을 다시 불러오거나, **현재 설정으로 다시 실행**으로 번호를 붙인 이름으로 다시 만들 수 있습니다.
+- **생성 패널.** 영상이나 오디오 파일을 고르거나 끌어다 놓거나, 웹캠 테이크나 음성 테이크(**음성 녹음**)를 녹화합니다. 오디오 소스는 재생하고 탐색할 수 있는 파형으로 표시됩니다. 모션 이름, 튜닝 프리셋, 스타일을 정하고, 필요하면 구간 자르기, 기본 표정 구간, 볼/혀 인식, 좌우 반전을 설정합니다. 오디오가 관련될 때는 **오디오** 그룹이 나타납니다. 소리가 있는 영상에서는 **오디오 트랙 사용**으로 `audio.use`(끄기, 입은 소리로, 얼굴은 소리로)를 정하고, **별도 오디오 파일 사용**은 `--audio`를 넘깁니다. 오디오를 쓸 때는 감정, 감정 세기, 말투(`audio.identity`)를 정할 수 있습니다. ⋯ 메뉴에서 이 값을 기본값으로 저장하거나 초기화하거나, 실행 내용을 `v2l run` 명령으로 복사할 수 있습니다.
+- **생성.** 번호가 붙은 단계 목록(upload, probe, tracking, expressions, audio, solving, writing, preview, download)과 트래킹·표정 점수화의 프레임 진행률을 보여 주며, 원본 로그도 볼 수 있습니다. 실패는 원인별로 표시되고(사용할 수 있는 얼굴 없음, 사용할 수 있는 음성 없음, 오디오 모델 사용 불가, 호스트 연결 불가, 잘못된 설정, 취소), 취소할 때는 확인을 받습니다. 완료된 결과는 원본 영상이나 오디오와 동기화해 비교하거나, 모델 폴더에 저장하거나(덮어쓰기 전 확인), **이 설정 사용**으로 그 설정을 다시 불러오거나, **현재 설정으로 다시 실행**으로 번호를 붙인 이름으로 다시 만들 수 있습니다. 결과 카드에는 소스 종류가 표시되고, 오디오일 때는 음성 비율, 레벨, 감정, 말투, 오디오 모델 장치도 표시됩니다.
 - **모션 편집기.** **모션 편집**(모션 목록 옆이나 결과에 있음)을 누르면 뷰어 아래에 커브 편집기가 붙어 열리며, 뷰어와 원본 영상이 재생 헤드를 따라갑니다. 키를 선택·드래그·추가하고, 베지어 핸들을 편집하고, 구간을 선형·베지어·계단·역계단으로 바꾸고, 자동·평탄 접선을 적용하고, 인스펙터에서 다시 맞추기·배율·자르기·시간 조정을 할 수 있습니다. 모든 변경은 실행 취소와 다시 실행이 되며, 팝오버에 키보드와 마우스 단축키가 정리되어 있습니다. 새 모션으로 저장하거나, 확인 후 덮어쓰거나, 모델 폴더에 저장합니다.
 - **매핑 편집기.** 모델 헤더의 **매핑**이나 설정 → 생성 기본값의 **파라미터 매핑**을 누르면 세 단계가 탭(입력, 브리지 출력, 파라미터)으로 열립니다. **변경 사항 미리 보기**는 저장하지 않은 매핑으로 마지막 결과를 트래킹을 재사용해 다시 만들어 재생하고, **남기기** 또는 **버리기**로 그 결과를 둘지 정합니다. 저장한 매핑은 이후의 모든 실행에 전달됩니다.
-- **웹캠 테이크.** 3-2-1 카운트다운과 무표정 안내가 나오며, 그 구간이 기본 표정 구간이 됩니다. 테이크 길이는 2.3~60초이고 마이크는 선택해야 켜집니다. 테이크는 `<V2L_OUT>/recordings/`에 저장됩니다.
+- **웹캠 테이크.** 3-2-1 카운트다운과 무표정 안내가 나오며, 그 구간이 기본 표정 구간이 됩니다. 테이크 길이는 2.3~60초이고 마이크는 선택해야 켜지며, 소리가 있는 테이크는 입을 오디오로 움직이는 데도 쓸 수 있습니다. 테이크는 `<V2L_OUT>/recordings/`에 저장됩니다.
+- **음성 테이크.** **음성 녹음**에서 마이크를 고르면 입력 레벨이 표시되고, 카운트다운 후 1~60초를 녹음합니다. 테이크는 `<V2L_OUT>/recordings/`에 `.m4a` 또는 `.opus`로 저장됩니다(`ffmpeg`가 없으면 WAV).
 - **언어와 테마.** 영어, 한국어, 일본어, 중국어 간체와 시스템·라이트·다크 테마를 지원합니다. 중립 색상은 Adobe Spectrum 2에서 가져왔고, 강조색은 라이트 테마에서 코럴(`#FD7688`), 다크 테마에서 Spectrum 마젠타입니다.
 
 ### 설정 창
@@ -523,11 +579,11 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 | 일반 | 언어, 테마(시스템 / 라이트 / 다크), 기본 모델 폴더, 시작할 때 마지막 모델 열기. |
 | 연산 | **원격 서버**(호스트, 원격 디렉터리, **연결 테스트**, **연산 서버 설정**) 또는 **이 컴퓨터**(`v2l` 실행 파일 경로, **테스트**, **이 컴퓨터 설정**). |
 | 출력 | 출력 폴더, 같은 결과 이름이 있을 때의 처리, 모델 폴더 자동 저장(기본값 끔), 미리보기 영상(Studio에서는 기본값 끔). |
-| 생성 기본값 | 기본 프리셋, 스타일, 반복, 좌우 반전, 볼/혀와 간격, 프레임레이트, 페이드, 브리지 프리셋, 커브 보간, 파라미터 매핑. |
-| 튜닝 | 스키마의 모든 설정을 [설정과 프리셋](#설정과-프리셋)과 같은 묶음으로 보여 줍니다. 고급 항목은 토글 뒤에 있고, 항목과 그룹마다 초기화할 수 있으며, 트래킹을 바꾸는 항목에는 "영상 다시 트래킹" 배지가 붙습니다. |
+| 생성 기본값 | 기본 프리셋, 스타일, 반복, 좌우 반전, 볼/혀와 간격, 프레임레이트, 페이드, 브리지 프리셋, 커브 보간, 파라미터 매핑, 오디오 트랙 사용(`audio.use`), 감정, 감정 세기, 말투. |
+| 튜닝 | 스키마의 모든 설정을 [설정과 프리셋](#설정과-프리셋)과 같은 묶음으로 보여 주며, **오디오**(`audio.*`)와 **생성 움직임**(`idle.*`)도 포함합니다. 고급 항목은 토글 뒤에 있고, 항목과 그룹마다 초기화할 수 있으며, 트래킹을 바꾸는 항목에는 "소스 다시 분석" 배지가 붙습니다. |
 | 프리셋 | CLI와 공유하는 내장 프리셋과 사용자 프리셋: 적용, 현재 튜닝 저장, 이름 변경, 삭제, 가져오기, 내보내기. |
 | 뷰어 | 물리 연산, 4K 텍스처, 프레이밍, 반복, 동기화의 기본값. |
-| 카메라 | 기본 카메라와 오디오 녹음 여부. |
+| 카메라 | 기본 카메라와 웹캠 테이크에서 오디오를 녹음할지 여부. |
 | 에이전트 및 CLI | 복사할 수 있는 `claude mcp add`, `codex mcp add` 명령과 MCP 서버용 클라이언트 JSON, 그리고 현재 설정을 담은 `v2l run` 명령 하나. 실행 파일, 호스트, 출력 폴더가 채워져 있습니다. |
 | 고급 | 로그 필터, 모델 캐시 비우기, 전체 설정 내보내기/가져오기, 모두 초기화. |
 | 정보 | 버전, 라이선스, 서드파티 고지, 경로와 호스트 이름이 빠진 진단 정보 복사. |
@@ -536,7 +592,7 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 
 **저장.** 변경 사항은 앱 데이터 폴더(`v2l-studio`)의 `settings.json`에 즉시 저장되며, 기본값과 다른 값만 기록됩니다. 우선순위: 스키마 기본값 < Studio 설정 < 환경 변수 < 생성 패널의 실행별 값. 환경 변수(`V2L_HOST`, `V2L_DIR`, `V2L_OUT`, `V2L_MODEL`)로 정해진 값은 잠긴 상태로 표시됩니다.
 
-**실행 위치.** 뷰어, 녹화, 파일 처리는 노트북에서 실행됩니다. 트래킹·해석·프로브는 설정 → 연산에서 고른 대로 원격 호스트(`bin/v2l-remote` 경유) 또는 이 컴퓨터(로컬 `v2l` 경유)에서 실행됩니다. 연산 환경을 설정하기 전에는 연결 버튼이 **생성 설정 필요**로 표시되며, 누르면 설정 → 연산이 열립니다.
+**실행 위치.** 뷰어, 녹화, 파일 처리는 노트북에서 실행됩니다. 트래킹·Audio2Face-3D·해석·프로브는 설정 → 연산에서 고른 대로 원격 호스트(`bin/v2l-remote` 경유) 또는 이 컴퓨터(로컬 `v2l` 경유)에서 실행됩니다. 연산 환경을 설정하기 전에는 연결 버튼이 **생성 설정 필요**로 표시되며, 누르면 설정 → 연산이 열립니다.
 
 ## 출력 파일
 
@@ -545,9 +601,9 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 | 파일 | 내용 |
 |---|---|
 | `hello.motion3.json` | Cubism 모션. 기본은 선형 세그먼트(`output.interpolation=bezier`이면 제한된 베지어)이며, 단순화하고 검증했습니다. |
-| `hello.preview.mp4` | 원본 영상과 물리 연산을 켠 모델 렌더링을 나란히 보여 줍니다(`--no-preview`면 생략). |
-| `hello.report.json` | 얼굴·포즈 검출률, 가장 긴 트래킹 누락, 사용한 기본 표정 구간, 눈 깜빡임, 파라미터별 범위 사용률, 최종 매핑, 매핑 메모, 경고. |
-| `hello.signals.json` | 프레임별 트래킹 입력과 브리지 출력(`--dump-signals`를 줄 때만). |
+| `hello.preview.mp4` | 원본 영상과 물리 연산을 켠 모델 렌더링을 나란히 보여 줍니다(`--no-preview`면 생략). 오디오만 입력하면 모델만 보여 주며, 오디오가 모션을 움직일 때는 미리보기에 그 소리가 들어갑니다. |
+| `hello.report.json` | 얼굴·포즈 검출률, 가장 긴 트래킹 누락, 사용한 기본 표정 구간, 눈 깜빡임, 파라미터별 범위 사용률, 최종 매핑, 매핑 메모, 경고. 또한 `source`(`kind`: `video`, `audio` 또는 `video+audio`, 그리고 `use`), `audio`(파일, 길이, 레벨, 음성 비율, Audio2Face-3D 아이덴티티, 감정, 장치. 영상만이면 null), `idle`(생성한 움직임. 생성하지 않았으면 null)이 들어 있습니다. |
+| `hello.signals.json` | 프레임별 트래킹 입력과 브리지 출력(`--dump-signals`를 줄 때만). 오디오를 쓰면 각 입력의 출처와 프레임별 음량도 들어갑니다. |
 
 기본적으로 모션은 모델 폴더에도 복사됩니다. 그러면 VTube Studio가 해당 모델의 애니메이션으로 표시합니다.
 
@@ -558,6 +614,7 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 - 조금 과장해서 연기하세요. 아바타는 카메라에 보이는 것만 표현합니다.
 - 좌우 반전으로 녹화된 영상(셀피 카메라)이면 `--flip`을 지정하세요.
 - `--start`와 `--end`로 테이크 앞뒤의 준비 시간을 잘라 내세요.
+- 오디오는 한 사람의 목소리를 마이크 가까이에서, 음악이나 배경 대화 없이 녹음하세요. 실험할 때는 긴 녹음을 `--start`와 `--end`로 잘라 쓰세요.
 
 ## 한계
 
@@ -568,6 +625,10 @@ V2L Studio(`bin/v2l-studio`)는 한쪽에 Live2D 뷰어, 다른 쪽에 생성 �
 - 오프라인 전용입니다. 실시간 트래킹 모드는 없습니다.
 - 클립당 연기자 한 명만 지원합니다.
 - 매핑 파일로 추가한 파라미터는 렌더 프로브가 측정하지 않으므로 방향이 자동으로 보정되지 않습니다.
+- 오디오 입력: 얼굴은 화자의 실제 표정이 아니라 음성을 따릅니다. 감정은 검출하지 않고 직접 고르며(`audio.emotion`), NVIDIA의 Audio2Emotion은 사용하지 않습니다.
+- 오디오 입력: Audio2Face-3D v3.0은 눈을 깜빡이지 않으며(`idle.blinks`가 기본으로 절차적 눈 깜빡임을 더합니다), eyeLook*, jawLeft/Right, mouthLeft/Right, tongueOut은 움직이지 않습니다. 시선은 모델의 눈 회전에서 가져옵니다.
+- 오디오 입력에는 머리 자세 정보가 없습니다. 오디오만 입력하면 머리와 몸의 움직임은 연기한 것이 아니라 생성한 것입니다(`idle.*`).
+- 노래, 고함, 큰 음악, 여러 목소리가 섞이면 입 모양의 신뢰도가 떨어집니다. CPU에서는 긴 클립이 실시간보다 느리게 처리됩니다.
 
 ## 개발
 
@@ -603,7 +664,7 @@ V2L_REGRESS_MODEL=/path/to/model bin/v2l-remote regress
 
 ## 서드파티 구성 요소와 라이선스
 
-V2L 자체 코드는 MIT 라이선스입니다([LICENSE](LICENSE)). V2L Studio에 인라인으로 넣은 Lucide 아이콘 21개를 제외하면, 서드파티 파일은 패키지 관리자로 설치되거나 처음 사용할 때 내려받으며 이 저장소에 포함되어 있지 않습니다.
+V2L 자체 코드는 MIT 라이선스입니다([LICENSE](LICENSE)). V2L Studio에 인라인으로 넣은 Lucide 아이콘 27개와 [`src/v2l/a2f.py`](src/v2l/a2f.py)에 있는 NVIDIA의 MIT 라이선스 Audio2Face-3D SDK 코드의 Python 포팅을 제외하면, 서드파티 파일은 패키지 관리자로 설치되거나 처음 사용할 때 내려받으며 이 저장소에 포함되어 있지 않습니다.
 
 | 구성 요소 | 라이선스 |
 |---|---|
@@ -612,20 +673,25 @@ V2L 자체 코드는 MIT 라이선스입니다([LICENSE](LICENSE)). V2L Studio�
 | pixi-live2d-display 0.4.0 (`cubism4.min.js`) | MIT. Live2D Open Software License가 적용되는 Cubism Framework를 포함합니다 |
 | MediaPipe Face / Pose Landmarker 모델 | Apache-2.0 |
 | SigLIP 2 (`google/siglip2-so400m-patch14-384`) | Apache-2.0 |
-| [Lucide](https://lucide.dev) 아이콘(21개, V2L Studio에 인라인) | ISC. 그중 7개는 Feather에서 파생(MIT) |
+| NVIDIA Audio2Face-3D v3.0 모델(`nvidia/Audio2Face-3D-v3.0`, 오디오 입력 전용) | NVIDIA Open Model License(처음 사용할 때 Hugging Face에서 내려받으며 SHA-256으로 고정) |
+| Audio2Face-3D SDK(`src/v2l/a2f.py`에 포팅한 부분) | MIT |
+| ONNX Runtime(`onnxruntime` / `onnxruntime-gpu`, `audio` extra) | MIT. `[cuda,cudnn]` extra는 NVIDIA의 약관이 적용되는 NVIDIA CUDA와 cuDNN 런타임 wheel을 설치합니다 |
+| [Lucide](https://lucide.dev) 아이콘(27개, V2L Studio에 인라인) | ISC. 그중 7개는 Feather에서 파생(MIT) |
 
-pixi 파일은 `src/v2l/web/assets.json`에 SHA-256으로 고정되어 있습니다. 자세한 내용은 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 참고하세요. 서드파티 브리지 프리셋은 포함하지 않습니다.
+pixi 파일은 `src/v2l/web/assets.json`에 SHA-256으로 고정되어 있습니다. 자세한 내용은 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를, 오디오 모드는 [docs/audio.md](docs/audio.md)를 참고하세요. 서드파티 브리지 프리셋은 포함하지 않습니다.
 
 **사용자의 책임.**
 
 - Live2D 모델로 만든 작품을 공개하려면 Live2D의 별도 라이선스(예: Live2D Publication License)가 필요할 수 있습니다. 자신의 경우에 맞게 Live2D의 약관을 확인하세요.
 - 움직이려는 모델에 대한 권리가 있어야 합니다.
-- 처리하는 영상에 나오는 사람의 동의를 받아야 합니다.
+- 처리하는 영상과 음성 녹음에 나오는 사람의 동의를 받아야 합니다.
+- Audio2Face-3D 모델을 내려받으면 NVIDIA Open Model License에 동의하는 것입니다. 모델 파일은 V2L과 함께 배포되지 않으며, 이 모델로 생성한 모션에는 모델 데이터가 아니라 파라미터 커브만 들어 있습니다.
 
 ## 감사의 말
 
 - 얼굴과 포즈 트래킹: [MediaPipe](https://github.com/google-ai-edge/mediapipe).
 - 렌더링: [pixi-live2d-display](https://github.com/guansss/pixi-live2d-display)와 [PixiJS](https://github.com/pixijs/pixijs).
+- 음성 기반 얼굴 애니메이션: [NVIDIA Audio2Face-3D](https://huggingface.co/nvidia/Audio2Face-3D-v3.0)와 그 [SDK](https://github.com/NVIDIA/Audio2Face-3D-SDK). 실행 환경: [ONNX Runtime](https://onnxruntime.ai/).
 - 모델 형식과 런타임: [Live2D Cubism](https://www.live2d.com/).
 - V2L Studio의 아이콘: [Lucide](https://lucide.dev). 테마의 디자인 토큰: [Adobe Spectrum 2](https://spectrum.adobe.com/).
 - 브리지 인터프리터가 구현하는 [SnenkBridge](https://github.com/FaeyUmbrea/SnenkBridge) 수식 언어와 지연 버퍼. 매핑 편집기의 참고 자료입니다.

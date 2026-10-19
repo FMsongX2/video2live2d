@@ -288,11 +288,12 @@ def probe_model(model: Model, size: int = 640, settle: int = 300) -> dict:
 
 def render_motion(model: Model, motion_file: str, out_mp4: pathlib.Path, fps: float, framing: dict | None,
                   src_video: str | None = None, src_start: float = 0.0, width: int = 720, height: int = 900,
-                  progress=None) -> int:
+                  progress=None, audio: str | None = None) -> int:
     """Plays motion_file (inside the model folder) with physics and encodes an mp4.
 
-    With src_video the source clip is placed on the left at the same height.
-    progress(done, total) is called after every rendered frame.
+    With src_video the source clip is placed on the left at the same height, with its own sound.
+    With audio that file's sound (from src_start) is muxed instead (audio-only input, or a video
+    driven by a separate audio track). progress(done, total) is called after every rendered frame.
     """
     import json
 
@@ -310,11 +311,16 @@ def render_motion(model: Model, motion_file: str, out_mp4: pathlib.Path, fps: fl
             if progress:
                 progress(i + 1, n)
     rendered = ["-framerate", str(fps), "-i", str(frames / "%05d.jpg")]
+    sound = ["-ss", f"{src_start:.3f}", "-i", audio] if audio else []
+    encode = ["-t", f"{duration:.3f}", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "21", "-c:a", "aac",
+              str(out_mp4)]
     if src_video:
-        cmd = [FFMPEG, "-y", "-v", "error", "-ss", f"{src_start:.3f}", "-i", src_video, *rendered, "-filter_complex",
+        cmd = [FFMPEG, "-y", "-v", "error", "-ss", f"{src_start:.3f}", "-i", src_video, *rendered, *sound,
+               "-filter_complex",
                f"[0:v]fps={fps},scale=-2:{height}[a];[a][1:v]hstack=inputs=2,scale=trunc(iw/2)*2:trunc(ih/2)*2[v]",
-               "-map", "[v]", "-map", "0:a?", "-t", f"{duration:.3f}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-               "-crf", "21", "-c:a", "aac", str(out_mp4)]
+               "-map", "[v]", "-map", "2:a:0" if audio else "0:a?", *encode]
+    elif audio:
+        cmd = [FFMPEG, "-y", "-v", "error", *rendered, *sound, "-map", "0:v", "-map", "1:a:0", *encode]
     else:
         cmd = [FFMPEG, "-y", "-v", "error", *rendered, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "21", str(out_mp4)]
     subprocess.run(cmd, check=True)

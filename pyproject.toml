@@ -27,6 +27,12 @@ dependencies = [
 test = ["pytest>=8"]
 rare = ["torch>=2.7", "transformers>=4.50"]
 mcp = ["mcp>=2.3,<3"]
+# NVIDIA Audio2Face-3D through ONNX Runtime: the CUDA 13 build (NVIDIA driver >= 580, CPU fallback
+# included) on Linux/Windows x86_64, the CPU build on macOS and ARM.
+audio = [
+  "onnxruntime==1.31.0; sys_platform == 'darwin' or platform_machine == 'aarch64' or platform_machine == 'arm64'",
+  "onnxruntime-gpu[cuda,cudnn]==1.31.0; (sys_platform == 'linux' or sys_platform == 'win32') and (platform_machine == 'x86_64' or platform_machine == 'AMD64')",
+]
 
 [project.urls]
 Homepage = "https://github.com/FMsongX2/video2live2d"

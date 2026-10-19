@@ -110,12 +110,16 @@ export class MotionEditor {
     return api.confirm({ message: t("editor.discardMessage", { name: this.source?.name || "" }), detail: t("editor.discardDetail"), confirmLabel: t("editor.discard") });
   }
 
-  // The source video moves into the inspector while editing, so it stays visible.
+  // The source view (the video, or the waveform of an audio source) moves into the inspector
+  // while editing, so it stays visible.
   adoptVideo(on) {
-    const video = $("video");
-    if (on && this.source?.video) { $("editor-video").append(video); $("editor-video").classList.remove("hidden"); }
-    else if (!on && video.parentElement !== $("drop")) { $("drop").prepend(video); $("editor-video").classList.add("hidden"); }
-    else if (on) $("editor-video").classList.add("hidden");
+    if (on && this.source?.video) {
+      $("editor-video").append($(this.source.video.kind === "audio" ? "wave" : "video"));
+      $("editor-video").classList.remove("hidden");
+      return;
+    }
+    for (const view of [$("wave"), $("video")]) if (view.parentElement !== $("drop")) $("drop").prepend(view);
+    $("editor-video").classList.add("hidden");
   }
 
   loadRanges() {

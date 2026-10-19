@@ -260,6 +260,72 @@ class FilterConfig:
                          help="Low-pass cutoff for everything else (breathing is never filtered).")
 
 
+EMOTIONS = ("neutral", "amazement", "anger", "cheekiness", "disgust", "fear", "grief", "joy", "outofbreath",
+            "pain", "sadness")
+
+
+@dataclasses.dataclass
+class AudioConfig:
+    use: str = param("off", label="Use the audio track", choices=("off", "mouth", "face"), affects="tracking",
+                     help="For video input: off uses the video only; mouth takes jaw, lips and tongue from the "
+                          "audio; face takes the whole face from the audio and keeps head, body and gaze from "
+                          "the video. Audio-only input always uses the audio.")
+    identity: str = param("Claire", label="Speaking style", choices=("Claire", "James", "Mark"), affects="tracking",
+                          help="Which of Audio2Face-3D's trained actors the face imitates.")
+    emotion: str = param("neutral", label="Emotion", choices=EMOTIONS, affects="tracking",
+                         help="Emotion the face performs while speaking.")
+    emotion_strength: float = param(0.6, label="Emotion strength", min=0.0, max=1.0, step=0.05, affects="tracking",
+                                    help="How strongly the chosen emotion shows. No effect with neutral.")
+    strength: float = param(1.0, label="Audio face strength", unit="x", min=0.0, max=2.0, step=0.05,
+                            affects="tracking", help="Overall strength of the audio-driven face.")
+    upper_face_strength: float = param(1.0, label="Upper face", unit="x", min=0.0, max=2.0, step=0.05,
+                                       affects="tracking", advanced=True,
+                                       help="Strength of brow and eye-area motion from the audio.")
+    lower_face_strength: float = param(1.0, label="Lower face", unit="x", min=0.0, max=2.0, step=0.05,
+                                       affects="tracking", advanced=True,
+                                       help="Strength of mouth and jaw motion from the audio.")
+    blink_strength: float = param(1.0, label="Blinks", unit="x", min=0.0, max=2.0, step=0.05, affects="tracking",
+                                  advanced=True, help="Strength of the blinks the audio model generates.")
+    eyeballs_strength: float = param(1.0, label="Eye movement", unit="x", min=0.0, max=2.0, step=0.05,
+                                     affects="tracking", advanced=True,
+                                     help="Strength of the eye rotation the audio model generates.")
+    saccade_strength: float = param(0.6, label="Saccades", unit="x", min=0.0, max=2.0, step=0.05,
+                                    affects="tracking", advanced=True,
+                                    help="Small quick eye jumps added by the audio model.")
+    tongue_strength: float = param(1.3, label="Tongue", unit="x", min=0.0, max=2.0, step=0.05, affects="tracking",
+                                   advanced=True, help="Strength of tongue motion from the audio.")
+    lip_open_offset: float = param(0.0, label="Lip opening offset", min=-0.2, max=0.2, step=0.01,
+                                   affects="tracking", advanced=True,
+                                   help="Constant added to the audio model's lip opening.")
+    offset: float = param(0.0, label="Audio offset", unit="s", min=-1.0, max=1.0, step=0.01, affects="tracking",
+                          help="Shifts the audio-driven face in time; positive moves it later.")
+    seed: int = param(0, label="Seed", min=0, max=100000, step=1, affects="tracking", advanced=True,
+                      help="Seed for the audio model's random parts (saccades, diffusion).")
+    device: str = param("auto", label="Device", choices=("auto", "cuda", "cpu"), affects="tracking", advanced=True,
+                        help="Where Audio2Face-3D runs. auto uses an NVIDIA GPU when available.")
+
+
+@dataclasses.dataclass
+class IdleConfig:
+    head_amplitude: float = param(4.0, label="Head motion", unit="deg", min=0.0, max=20.0, step=0.5,
+                                  help="Size of the generated head sway when there is no video.")
+    head_speed: float = param(0.35, label="Head motion speed", unit="Hz", min=0.05, max=2.0, step=0.05,
+                              help="Typical rate of the generated head sway.")
+    speech_nods: float = param(1.0, label="Speech emphasis", unit="x", min=0.0, max=3.0, step=0.05,
+                               help="Small nods and tilts that follow the loudness of the speech.")
+    body_amplitude: float = param(1.0, label="Body motion", unit="x", min=0.0, max=3.0, step=0.05,
+                                  help="Body sway that follows the generated head motion.")
+    blinks: str = param("procedural", label="Blinks", choices=("model", "procedural", "off"),
+                        help="procedural adds natural random blinks (Audio2Face-3D v3.0 itself does not "
+                             "blink); model uses only the audio model's eye closing; off keeps the eyes open.")
+    blink_rate: float = param(15.0, label="Blink rate", unit="per min", min=2.0, max=40.0, step=1.0,
+                              help="Average blinks per minute for procedural blinks.")
+    gaze: str = param("model", label="Gaze", choices=("model", "center"),
+                      help="model uses the audio model's eye movement; center keeps the eyes forward.")
+    seed: int = param(0, label="Seed", min=0, max=100000, step=1, advanced=True,
+                      help="Seed for the generated head, body and blink motion.")
+
+
 @dataclasses.dataclass
 class PreviewConfig:
     enabled: bool = param(True, label="Render preview video", affects="output",
@@ -282,6 +348,8 @@ SECTIONS: dict[str, tuple[type, str, str]] = {
     "style": (StyleConfig, "Style", "Performance style added on top of the tracked motion."),
     "filtering": (FilterConfig, "Smoothing", "Zero-phase low-pass filtering per parameter group."),
     "preview": (PreviewConfig, "Preview", "The side-by-side preview video."),
+    "audio": (AudioConfig, "Audio", "Audio-driven face with NVIDIA Audio2Face-3D."),
+    "idle": (IdleConfig, "Generated motion", "Head, body and blinks generated when there is no video."),
 }
 
 
@@ -297,6 +365,8 @@ class Config:
     style: StyleConfig = dataclasses.field(default_factory=StyleConfig)
     filtering: FilterConfig = dataclasses.field(default_factory=FilterConfig)
     preview: PreviewConfig = dataclasses.field(default_factory=PreviewConfig)
+    audio: AudioConfig = dataclasses.field(default_factory=AudioConfig)
+    idle: IdleConfig = dataclasses.field(default_factory=IdleConfig)
 
 
 # --------------------------------------------------------------------------- schema and values

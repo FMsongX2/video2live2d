@@ -192,6 +192,43 @@ def test_generate_through_the_mcp_sdk(env):
     assert bad.is_error and "name must be" in bad.content[0].text
 
 
+def test_generate_with_audio_through_the_mcp_sdk(env):
+    """audio alone runs the audio file as the input; video + audio passes --audio and defaults
+    audio.use to mouth; the audio content is part of the request key."""
+    pytest.importorskip("mcp")
+    from mcp import Client
+
+    voice = env["tmp"] / "voice.wav"
+    voice.write_bytes(b"RIFF")
+    jobs = env["jobs"]()
+
+    async def go():
+        async with Client(M.build_server(jobs)) as c:
+            alone = await c.call_tool("v2l_generate", {"audio": str(voice), "model": str(env["model"]), "name": "a1"})
+            both = await c.call_tool("v2l_generate", {"video": str(env["video"]), "audio": str(voice),
+                                                      "model": str(env["model"]), "name": "a2"})
+            bad = await c.call_tool("v2l_generate", {"video": str(voice), "audio": str(voice),
+                                                     "model": str(env["model"]), "name": "a3"})
+            return alone, both, bad
+    alone, both, bad = run(go())
+    assert not alone.is_error and alone.structured_content["status"] == "succeeded"
+    assert not both.is_error and both.structured_content["status"] == "succeeded"
+    by_name = {j.name: j for j in jobs.jobs.values()}
+    a1, a2 = by_name["a1"].argv, by_name["a2"].argv
+    assert a1[a1.index("run") + 1] == str(voice) and "--audio" not in a1
+    assert a2[a2.index("run") + 1] == str(env["video"]) and a2[a2.index("--audio") + 1] == str(voice)
+    settings = json.loads(pathlib.Path(a2[a2.index("--config") + 1]).read_text()) if pathlib.Path(
+        a2[a2.index("--config") + 1]).exists() else None
+    assert settings is None or settings["audio"]["use"] == "mouth"
+    assert by_name["a2"].audio == str(voice) and by_name["a2"].record()["audio"] == str(voice)
+    assert bad.is_error and "audio file" in bad.content[0].text
+    cfg, _ = M.validate(None)
+    base = M.default_out_dir()
+    k1 = M.request_key(env["video"], env["model"], cfg, "k", base / "k", False, None, voice)
+    voice.write_bytes(b"RIFF2")
+    assert k1 != M.request_key(env["video"], env["model"], cfg, "k", base / "k", False, None, voice)
+
+
 MOTION = {"Version": 3, "Meta": {"Duration": 2.0, "Fps": 30.0, "FadeInTime": 0.5, "FadeOutTime": 0.5, "Loop": False,
                                  "AreBeziersRestricted": True, "CurveCount": 1, "TotalSegmentCount": 2,
                                  "TotalPointCount": 3, "UserDataCount": 0, "TotalUserDataSize": 0},

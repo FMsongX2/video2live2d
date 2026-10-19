@@ -114,28 +114,40 @@
         <button id="edit-motion" class="with-icon" data-icon="spline" data-i18n-title="editor.editTitle" title="Edit the keys and curves of this motion" disabled><span data-i18n="editor.edit">Edit motion</span></button>
       </div>
       <div class="timeline"><input type="range" id="scrub" data-i18n-aria-label="transport.position" aria-label="Playback position" min="0" max="1000" value="0" disabled><span id="time">0.00 / 0.00 s</span></div>
-      <div class="transport-options"><label class="chk"><input type="checkbox" id="loop" checked> <span data-i18n="transport.loop">Loop</span></label><label class="chk"><input type="checkbox" id="sync" checked> <span data-i18n="transport.sync">Sync with source video</span></label><span class="key-hint" data-i18n="transport.keyHint">Space: play</span></div>
+      <div class="transport-options"><label class="chk"><input type="checkbox" id="loop" checked> <span data-i18n="transport.loop">Loop</span></label><label class="chk"><input type="checkbox" id="sync" checked> <span data-i18n="transport.sync">Sync with source</span></label><span class="key-hint" data-i18n="transport.keyHint">Space: play</span></div>
     </footer>
   </section>
   <aside class="bench-pane" data-i18n-aria-label="bench.label" aria-label="Create motion">
     <header class="bench-header"><h2 data-i18n="bench.label">Create motion</h2><span id="workflow-label" data-i18n="workflow.source">Add a source</span></header>
     <div class="bench-scroll">
       <section class="source-section" aria-labelledby="source-heading">
-        <div class="section-heading"><h3 id="source-heading" data-i18n="source.heading">Source video</h3><span id="source-meta" class="hint" data-i18n="source.none">Not selected yet</span></div>
-        <div class="source-bar"><button id="open-video" data-i18n="source.openVideo">Choose video</button><button id="open-cam" data-i18n="source.openCam">Record with webcam</button></div>
+        <div class="section-heading"><h3 id="source-heading" data-i18n="source.heading">Source</h3><span id="source-meta" class="hint" data-i18n="source.none">Not selected yet</span></div>
+        <div class="source-bar" role="group" data-i18n-aria-label="source.add" aria-label="Add a source">
+          <button id="open-video" class="with-icon" data-icon="folderOpen" data-i18n-title="source.openFileTitle" title="Choose a video or an audio file"><span data-i18n="source.openFile">Choose file</span></button>
+          <button id="open-cam" class="with-icon" data-icon="video" data-i18n-title="source.openCam" title="Record with webcam"><span data-i18n="source.webcamShort">Webcam</span></button>
+          <button id="open-mic" class="with-icon" data-icon="mic" data-i18n-title="source.openMic" title="Record voice"><span data-i18n="source.voiceShort">Voice</span></button>
+        </div>
         <div id="drop" class="drop">
           <video id="video" controls playsinline data-i18n-aria-label="source.videoLabel" aria-label="Source video"></video>
-          <div id="drop-hint"><svg viewBox="0 0 48 40" width="48" height="40" aria-hidden="true"><rect x="3" y="6" width="30" height="28" rx="7"/><path d="m33 15 12-6v22l-12-6M14 15l10 5-10 5z"/></svg><strong data-i18n="drop.title">Capture expressions and movement</strong><span data-i18n="drop.body">Drop a video of a face and upper body here.</span><small data-i18n="drop.formats">MP4, MOV, WebM · or record with your webcam</small></div>
+          <div id="wave" class="wave" role="group" data-i18n-aria-label="source.audioLabel" aria-label="Source audio">
+            <canvas id="wave-canvas" tabindex="0" role="slider" data-i18n-aria-label="source.audioPosition" aria-label="Audio position (arrow keys move, Space plays)" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas>
+            <div class="wave-bar"><button id="wave-play" type="button" class="icon wave-play" data-i18n-aria-label="source.playAudio" aria-label="Play audio" data-i18n-title="source.playAudio" title="Play audio"></button><span id="wave-time" class="wave-time">0.0 / 0.0 s</span></div>
+          </div>
+          <div id="drop-hint"><svg viewBox="0 0 48 40" width="48" height="40" aria-hidden="true"><rect x="3" y="6" width="30" height="28" rx="7"/><path d="m33 15 12-6v22l-12-6M14 15l10 5-10 5z"/></svg><strong data-i18n="drop.title">Capture expressions and movement</strong><span data-i18n="drop.body">Drop a video of a face and upper body, or a voice recording.</span><small data-i18n="drop.formats">Video: MP4, MOV, WebM · Audio: WAV, MP3, M4A, FLAC, OGG, Opus</small></div>
           <div id="cam-panel" class="cam hidden">
             <video id="cam" autoplay muted playsinline data-i18n-aria-label="cam.preview" aria-label="Webcam preview"></video>
             <span class="mirror-label" data-i18n="cam.mirror">Mirrored preview · recording is not flipped</span>
-            <div id="cam-cue" class="cue hidden" role="status"></div>
           </div>
+          <div id="voice-panel" class="voice hidden"><canvas id="voice-canvas" aria-hidden="true"></canvas></div>
+          <div id="rec-cue" class="cue hidden" role="status"></div>
         </div>
+        <audio id="audio" preload="auto"></audio>
         <div id="camera-controls" class="camera-controls hidden">
-          <div class="camera-devices"><select id="cam-device" data-i18n-aria-label="cam.device" aria-label="Camera"></select><label class="chk"><input type="checkbox" id="cam-mic"> <span data-i18n="cam.mic">Record audio</span></label></div>
+          <div id="cam-devices" class="camera-devices"><select id="cam-device" data-i18n-aria-label="cam.device" aria-label="Camera"></select><label class="chk"><input type="checkbox" id="cam-mic"> <span data-i18n="cam.mic">Record audio</span></label></div>
+          <div id="mic-devices" class="camera-devices"><select id="mic-device" data-i18n-aria-label="voice.device" aria-label="Microphone"></select></div>
+          <div id="mic-meter" class="level"><meter id="mic-level" min="-60" max="0" low="-42" high="-8" optimum="-20" value="-60" data-i18n-aria-label="voice.level" aria-label="Input level"></meter><span id="mic-db" class="level-text" aria-hidden="true"></span></div>
           <div class="record-controls"><button id="rec" class="primary" data-i18n="cam.start">Start recording</button><span id="rec-time"></span><button id="cam-close" data-i18n="cam.close">Close camera</button></div>
-          <p class="hint" data-i18n="cam.hint" data-i18n-args='{"max":60}'>After the countdown, hold a neutral face for a moment, then move freely. Recording stops at 60 s.</p>
+          <p id="capture-hint" class="hint" data-i18n="cam.hint" data-i18n-args='{"max":60}'>After the countdown, hold a neutral face for a moment, then move freely. Recording stops at 60 s.</p>
         </div>
         <p id="source-name" class="source-name hidden"></p>
       </section>
@@ -155,12 +167,30 @@
           <label class="chk option"><input type="checkbox" id="opt-loop"> <span data-i18n="settings.loop">Seamless loop</span></label>
           <label class="field" for="interp"><span data-i18n="param.output.interpolation.label">Curve interpolation</span><select id="interp" aria-describedby="interp-help"><option value="linear" data-i18n="editor.type.linear">Linear</option><option value="bezier" data-i18n="editor.type.bezier">Bezier</option></select></label>
           <p id="interp-help" class="hint" data-i18n="bench.interpHelp">Bezier writes fewer, smooth keys that are easier to edit afterwards.</p>
-          <details id="advanced" class="advanced"><summary data-i18n="settings.advanced">Trim &amp; expression detection</summary><div class="advanced-body">
+          <section id="audio-opts" class="audio-opts hidden" aria-labelledby="audio-heading">
+            <h4 id="audio-heading" data-i18n="audio.heading">Audio</h4>
+            <div id="audio-use-row">
+              <label class="field" for="audio-use"><span data-i18n="param.audio.use.label">Use the audio track</span><select id="audio-use" aria-describedby="audio-use-help"></select></label>
+              <p id="audio-use-help" class="hint"></p>
+            </div>
+            <div id="audio-file-row" class="audio-file">
+              <button type="button" id="audio-file" class="link" data-i18n="audio.separate">Use a separate audio file</button>
+              <span id="audio-file-name" class="audio-file-name hidden"></span>
+              <button type="button" id="audio-file-clear" class="icon tiny hidden" data-icon="close" data-i18n-aria-label="audio.separateClear" aria-label="Stop using the separate audio file" data-i18n-title="audio.separateClear" title="Stop using the separate audio file"></button>
+            </div>
+            <div id="audio-voice" class="audio-voice">
+              <label class="field" for="emotion"><span data-i18n="param.audio.emotion.label">Emotion</span><select id="emotion"></select></label>
+              <div class="field"><label for="emotion-strength" data-i18n="param.audio.emotion_strength.label">Emotion strength</label><div class="slider"><input type="range" id="emotion-strength" min="0" max="1" step="0.05" value="0.6"><output id="emotion-strength-value" for="emotion-strength">60%</output></div></div>
+              <label class="field" for="identity"><span data-i18n="param.audio.identity.label">Speaking style</span><select id="identity" aria-describedby="identity-help"></select></label>
+              <p id="identity-help" class="hint" data-i18n="audio.identityHelp">Which of the voice model's trained actors the face imitates.</p>
+            </div>
+          </section>
+          <details id="advanced" class="advanced"><summary id="advanced-summary" data-i18n="settings.advanced">Trim &amp; expression detection</summary><div class="advanced-body">
             <div class="field"><span data-i18n="settings.range">Range (seconds)</span><div class="pair"><label for="start"><span data-i18n="settings.start">Start</span><input id="start" type="number" min="0" step="0.01" placeholder="0"></label><label for="end"><span data-i18n="settings.end">End</span><input id="end" type="number" min="0" step="0.01" data-i18n-placeholder="settings.endPlaceholder" placeholder="End of video"></label></div></div>
-            <label class="field" for="neutral"><span data-i18n="settings.neutral">Neutral face window (start:end)</span><input id="neutral" data-i18n-placeholder="settings.neutralPlaceholder" placeholder="Auto · e.g. 0.3:1.3" aria-describedby="neutral-help"></label>
-            <p id="neutral-help" class="hint" data-i18n="settings.neutralHelp">Measured from the start of the range. Leave empty to choose automatically.</p>
-            <label class="chk option"><input type="checkbox" id="rare" checked> <span data-i18n="settings.rare">Detect cheek puff &amp; tongue</span></label><p class="hint" data-i18n="settings.rareHelp">Experimental. Takes longer, and results depend on the parameters your model supports.</p>
-            <label class="chk option"><input type="checkbox" id="flip"> <span data-i18n="settings.flip">Correct a mirrored source video</span></label>
+            <div id="neutral-row"><label class="field" for="neutral"><span data-i18n="settings.neutral">Neutral face window (start:end)</span><input id="neutral" data-i18n-placeholder="settings.neutralPlaceholder" placeholder="Auto · e.g. 0.3:1.3" aria-describedby="neutral-help"></label>
+            <p id="neutral-help" class="hint" data-i18n="settings.neutralHelp">Measured from the start of the range. Leave empty to choose automatically.</p></div>
+            <div id="rare-row"><label class="chk option"><input type="checkbox" id="rare" checked> <span data-i18n="settings.rare">Detect cheek puff &amp; tongue</span></label><p class="hint" data-i18n="settings.rareHelp">Experimental. Takes longer, and results depend on the parameters your model supports.</p></div>
+            <div id="flip-row"><label class="chk option"><input type="checkbox" id="flip"> <span data-i18n="settings.flip">Correct a mirrored source video</span></label></div>
           </div></details>
           <p id="bench-note" class="hint" role="status"></p>
         </fieldset>
